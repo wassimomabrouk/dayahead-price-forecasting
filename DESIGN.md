@@ -39,8 +39,8 @@ that instant.
 **Not admissible**
 
 - Realized load, realized generation, realized residual load
-- Intraday generation forecasts (SMARD category 32), which are republished
-  after gate closure
+- Intraday generation forecasts (SMARD category 32), which revise the
+  day-ahead values after gate closure
 - Any price for a delivery hour on day D or later
 
 **The non-obvious constraint.** Prices for delivery day D clear at the auction
@@ -50,11 +50,55 @@ old in auction terms. A one-hour price lag looks conservative and is leakage.
 `config.MIN_PRICE_LAG_HOURS = 24` encodes this and `tests/test_config.py`
 asserts it.
 
-**Enforcement.** Every feature carries an explicit availability timestamp.
-`tests/test_gate_closure.py` asserts that no availability timestamp exceeds
-issuance, that no forbidden series reaches the feature matrix, and that a
-deliberately leaky column injected into the matrix causes a failure. The last
-of these is what stops the check from being decorative.
+**Enforcement.** Every feature carries an explicit availability timestamp,
+assigned from the market rules rather than inferred from the data, since
+SMARD publishes delivery timestamps only. `tests/test_gate_closure.py`
+asserts that no assigned availability timestamp exceeds issuance, that no
+forbidden series reaches the feature matrix, that the minimum price lag is
+respected, and that a deliberately leaky column injected into the matrix
+causes a failure. The last of these is what stops the check from being
+decorative. What the tests enforce is the assignment; section 2a states
+what the assignment itself rests on.
+
+---
+
+## 2a. Limitation: forecast publication timing
+
+Established after section 3b, by checking Commission Regulation (EU)
+543/2013 rather than by inspecting data. Recorded as a disclosure. It does
+not alter any pre-committed evaluation choice in this document.
+
+The day-ahead total load forecast must be published no later than two hours
+before day-ahead gate closure, so by 10:00 on D-1. It is unambiguously
+inside the gate.
+
+The day-ahead wind and solar generation forecast has a publication deadline
+of 18:00 on D-1, which falls after the noon auction. SMARD serves a delivery
+timestamp, not a publication timestamp, so it cannot be verified from this
+data that the exact values used here existed at 12:00 on D-1.
+
+What can be verified: these are day-ahead vintage series, distinct from the
+intraday forecasts (SMARD category 32) and from realized outturn, and no
+realized series enters a model.
+
+The claim this project makes is therefore the narrower and accurate one: no
+realized outturn and no intraday revision enters the feature set, and the
+exogenous inputs are day-ahead forecasts of the kind a participant held at
+gate closure. The claim it does not make is that every value carries a
+publication timestamp before noon on D-1.
+
+In practice German TSOs publish ahead of the regulatory deadline and
+participants hold wind and solar forecasts at noon of comparable quality.
+This construction is also standard in the published price forecasting
+literature, which uses ENTSO-E day-ahead prices together with day-ahead load
+and RES generation forecasts for the same task. Neither fact constitutes
+verification, and both are stated here rather than relied on silently.
+
+**Consequence for interpretation.** Any residual optimism from this source
+inflates all models equally, including the baselines, so the skill scores and
+the relative model ranking are unaffected. Absolute error levels may be
+slightly optimistic relative to a participant using only vendor forecasts
+available at noon.
 
 ---
 
@@ -197,8 +241,8 @@ constrain that choice and are fixed now.
 2. Price lags are at least 24 hours.
 3. No column from `config.FORBIDDEN` enters the matrix under any name or
    transformation.
-4. Exogenous forecasts are used at their delivery hour, since they are
-   future-known covariates published before gate closure.
+4. Exogenous forecasts are used at their delivery hour, as future-known
+   covariates. Subject to the publication timing limitation in section 2a.
 5. Linear models use one side of the residual identity, never both.
 6. German public holidays enter as calendar features. Holidays vary by
    federal state and affect load, so the treatment is documented explicitly
