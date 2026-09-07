@@ -1,0 +1,76 @@
+{
+  "duplicate_timestamps": {
+    "price_delu": 0,
+    "fc_gen_total": 0,
+    "fc_wind_on": 0,
+    "fc_wind_off": 0,
+    "fc_solar": 0,
+    "fc_load": 0,
+    "fc_residual": 0,
+    "load_real": 0,
+    "residual_real": 0
+  },
+  "off_grid_timestamps": {
+    "price_delu": 0,
+    "fc_gen_total": 0,
+    "fc_wind_on": 0,
+    "fc_wind_off": 0,
+    "fc_solar": 0,
+    "fc_load": 0,
+    "fc_residual": 0,
+    "load_real": 0,
+    "residual_real": 0
+  },
+  "grid_rows": 69720,
+  "interior_nulls": {
+    "price_delu": 0,
+    "fc_gen_total": 0,
+    "fc_wind_on": 0,
+    "fc_wind_off": 0,
+    "fc_solar": 0,
+    "fc_load": 24,
+    "fc_residual": 24,
+    "load_real": 0,
+    "residual_real": 0
+  },
+  "interior_null_runs": {
+    "fc_load": [
+      [
+        "2020-01-30 23:00:00+00:00",
+        "2020-01-31 22:00:00+00:00"
+      ]
+    ],
+    "fc_residual": [
+      [
+        "2020-01-30 23:00:00+00:00",
+        "2020-01-31 22:00:00+00:00"
+      ]
+    ]
+  },
+  "cutoff_utc": "2026-09-07 21:00:00+00:00",
+  "rows_full": 69720,
+  "rows_trimmed": 69576,
+  "rows_usable": 69552,
+  "rows_excluded": 24,
+  "residual_identity": {
+    "corr": 0.9999999999999873,
+    "mean_abs_diff": 0.00043938348309426354,
+    "max_abs_diff": 0.020000000008735697,
+    "holds": true,
+    "tolerance_mw": 0.05
+  },
+  "dst": {
+    "n_23h_days": 8,
+    "n_25h_days": 8,
+    "n_other": 0
+  },
+  "target_stats": {
+    "n": 69576,
+    "mean": 94.17052101299298,
+    "sd": 90.36302339733834,
+    "min": -500.0,
+    "max": 936.28,
+    "negative_hours": 2515,
+    "negative_pct": 3.614752213406922
+  }
+}

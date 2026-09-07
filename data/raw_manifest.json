@@ -1,0 +1,117 @@
+{
+  "created_utc": "2026-09-07T13:43:15.347856+00:00",
+  "window_start_utc": "2018-09-30T22:00:00+00:00",
+  "region": "DE",
+  "resolution": "hour",
+  "series": {
+    "price_delu": {
+      "filter_id": "4169",
+      "blocks_expected": 415,
+      "blocks_stored": 415,
+      "failed": [],
+      "points": 69720,
+      "nulls": 144,
+      "null_pct": 0.2065,
+      "first_block": 1538344800000,
+      "last_block": 1788732000000,
+      "role": "target"
+    },
+    "fc_gen_total": {
+      "filter_id": "122",
+      "blocks_expected": 415,
+      "blocks_stored": 415,
+      "failed": [],
+      "points": 69720,
+      "nulls": 144,
+      "null_pct": 0.2065,
+      "first_block": 1538344800000,
+      "last_block": 1788732000000,
+      "role": "exog"
+    },
+    "fc_wind_on": {
+      "filter_id": "123",
+      "blocks_expected": 415,
+      "blocks_stored": 415,
+      "failed": [],
+      "points": 69720,
+      "nulls": 144,
+      "null_pct": 0.2065,
+      "first_block": 1538344800000,
+      "last_block": 1788732000000,
+      "role": "exog"
+    },
+    "fc_wind_off": {
+      "filter_id": "3791",
+      "blocks_expected": 415,
+      "blocks_stored": 415,
+      "failed": [],
+      "points": 69720,
+      "nulls": 144,
+      "null_pct": 0.2065,
+      "first_block": 1538344800000,
+      "last_block": 1788732000000,
+      "role": "exog"
+    },
+    "fc_solar": {
+      "filter_id": "125",
+      "blocks_expected": 415,
+      "blocks_stored": 415,
+      "failed": [],
+      "points": 69720,
+      "nulls": 144,
+      "null_pct": 0.2065,
+      "first_block": 1538344800000,
+      "last_block": 1788732000000,
+      "role": "exog"
+    },
+    "fc_load": {
+      "filter_id": "411",
+      "blocks_expected": 415,
+      "blocks_stored": 415,
+      "failed": [],
+      "points": 69720,
+      "nulls": 144,
+      "null_pct": 0.2065,
+      "first_block": 1538344800000,
+      "last_block": 1788732000000,
+      "role": "exog"
+    },
+    "fc_residual": {
+      "filter_id": "4362",
+      "blocks_expected": 415,
+      "blocks_stored": 415,
+      "failed": [],
+      "points": 69720,
+      "nulls": 168,
+      "null_pct": 0.241,
+      "first_block": 1538344800000,
+      "last_block": 1788732000000,
+      "role": "exog"
+    },
+    "load_real": {
+      "filter_id": "410",
+      "blocks_expected": 415,
+      "blocks_stored": 415,
+      "failed": [],
+      "points": 69720,
+      "nulls": 153,
+      "null_pct": 0.2194,
+      "first_block": 1538344800000,
+      "last_block": 1788732000000,
+      "role": "forbidden"
+    },
+    "residual_real": {
+      "filter_id": "4359",
+      "blocks_expected": 415,
+      "blocks_stored": 415,
+      "failed": [],
+      "points": 69720,
+      "nulls": 153,
+      "null_pct": 0.2194,
+      "first_block": 1538344800000,
+      "last_block": 1788732000000,
+      "role": "forbidden"
+    }
+  },
+  "elapsed_seconds": 1294.5
+}
