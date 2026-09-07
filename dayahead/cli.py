@@ -4,6 +4,8 @@ Command line interface.
     py -m dayahead.cli ingest [--dry-run]
     py -m dayahead.cli validate
     py -m dayahead.cli report
+    py -m dayahead.cli eda
+    py -m dayahead.cli features
 
 Run from the repository root. No installation step required.
 """
@@ -75,9 +77,8 @@ def cmd_validate(args) -> int:
         print("    none")
 
     ident = report["residual_identity"]
-    print(f"\n  residual identity holds: {ident['holds']}  "
-          f"(corr {ident['corr']:.6f}, max abs diff {ident['max_abs_diff']:.4g} MW, "
-          f"tolerance {ident['tolerance_mw']} MW)")
+    print(f"\n  residual identity exact: {ident['exact']}  "
+          f"(corr {ident['corr']:.6f}, max abs diff {ident['max_abs_diff']:.6g})")
 
     d = report["dst"]
     print(f"  DST: {d['n_23h_days']} short days, {d['n_25h_days']} long days, "
@@ -109,6 +110,52 @@ def cmd_report(args) -> int:
     return 0
 
 
+def cmd_eda(args) -> int:
+    from .eda import run
+
+    run()
+    return 0
+
+
+def cmd_features(args) -> int:
+    from .features.build import build_audit, build_features
+
+    print("=" * 78)
+    print("SECTION 4: FEATURE MATRIX")
+    print("=" * 78)
+    X, specs = build_features(verbose=True)
+
+    print(f"\n  rows:      {len(X):,}")
+    print(f"  features:  {len(specs)}")
+    print(f"  usable:    {int(X['is_usable'].sum()):,}")
+    dropped = ~X["is_usable"]
+    per_day = X.index[dropped].normalize().value_counts()
+    print(f"  dropped:   {int(dropped.sum()):,}  "
+          f"({int((per_day == 24).sum())} whole days, "
+          f"{int((per_day < 24).sum())} partial)")
+    print("             whole days are the 7 day warm-up and the 2020-01-31")
+    print("             outage; partials are the DST hours with no counterpart")
+    print("             on the source day, which are left missing not filled")
+
+    audit = build_audit(X.index, specs)
+    print("\n  gate closure audit, slack in hours before issuance:")
+    print(audit.groupby("kind")["min_slack_hours"]
+          .agg(["min", "max", "count"]).to_string())
+    bad = audit[~audit["admissible"]]
+    if len(bad):
+        print(f"\n  INADMISSIBLE: {bad['feature'].tolist()}")
+        return 1
+    print("\n  all features admissible at gate closure")
+
+    cfg.PROCESSED.mkdir(parents=True, exist_ok=True)
+    X.to_parquet(cfg.PROCESSED / "features.parquet")
+    audit.to_csv(cfg.REPORTS / "feature_audit.csv", index=False)
+    print(f"\n  written: {cfg.PROCESSED / 'features.parquet'}")
+    print(f"           {cfg.REPORTS / 'feature_audit.csv'}")
+    print("=" * 78)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="dayahead")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -122,6 +169,12 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("report", help="summarise the built panel")
     p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("eda", help="exploratory analysis and figures")
+    p.set_defaults(func=cmd_eda)
+
+    p = sub.add_parser("features", help="build and audit the feature matrix")
+    p.set_defaults(func=cmd_features)
 
     args = parser.parse_args(argv)
     return args.func(args)
