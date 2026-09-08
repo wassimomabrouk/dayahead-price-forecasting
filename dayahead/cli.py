@@ -6,7 +6,7 @@ Command line interface.
     py -m dayahead.cli report
     py -m dayahead.cli eda
     py -m dayahead.cli features
-    py -m dayahead.cli backtest
+    py -m dayahead.cli backtest [--models all] [--quick]
 
 Run from the repository root. No installation step required.
 """
@@ -170,8 +170,11 @@ def cmd_backtest(args) -> int:
 
     X, _ = build_features()
     models = all_baselines()
+    if args.models == "all":
+        from .models.arima import ladder
+        models = models + ladder()
     print(f"\n  models: {[m.name for m in models]}")
-    preds = run_backtest(X, models, verbose=True)
+    preds = run_backtest(X, models, verbose=True, every=args.every)
 
     cfg.PROCESSED.mkdir(parents=True, exist_ok=True)
     cfg.REPORTS.mkdir(parents=True, exist_ok=True)
@@ -235,6 +238,10 @@ def main(argv=None) -> int:
     p.set_defaults(func=cmd_features)
 
     p = sub.add_parser("backtest", help="run the rolling origin backtest")
+    p.add_argument("--models", choices=["baselines", "all"], default="baselines",
+                   help="'all' adds ARIMA, SARIMA and SARIMAX (slow)")
+    p.add_argument("--every", type=int, default=1,
+                   help="run every Nth fold, for a fast smoke test")
     p.set_defaults(func=cmd_backtest)
 
     args = parser.parse_args(argv)

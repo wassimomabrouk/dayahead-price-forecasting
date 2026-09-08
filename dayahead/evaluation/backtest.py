@@ -45,13 +45,13 @@ def _assert_no_overlap(train_idx: pd.DatetimeIndex,
 
 
 def run_backtest(X: pd.DataFrame, models: list[Forecaster],
-                 verbose: bool = True) -> pd.DataFrame:
+                 verbose: bool = True, every: int = 1) -> pd.DataFrame:
     """
     X       feature matrix from section 4, with y and is_usable
     models  fitted fresh on every fold
     """
     bt = backtest_frame(X)
-    fold_list = folds(X)
+    fold_list = folds(X)[:: max(1, every)]
     feature_cols = _feature_columns(bt)
 
     if verbose:
@@ -77,7 +77,15 @@ def run_backtest(X: pd.DataFrame, models: list[Forecaster],
 
         for model in models:
             fitted = model.fit(Xtr, ytr)
-            point = fitted.predict(Xte)
+            # State space models need the realised series to advance their
+            # conditioning state one step at a time. They use it for filtering
+            # only, never for parameter estimation, and each prediction still
+            # conditions on t-1 alone. Models that ignore the argument are
+            # unaffected.
+            try:
+                point = fitted.predict(Xte, y=yte)
+            except TypeError:
+                point = fitted.predict(Xte)
             try:
                 qs = fitted.predict_quantiles(Xte)
             except NotImplementedError:

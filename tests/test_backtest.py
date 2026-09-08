@@ -103,3 +103,57 @@ def test_harness_raises_if_a_fold_would_leak(monkeypatch):
     idx = pd.date_range("2020-01-01", periods=100, freq="h", tz=cfg.LOCAL_TZ)
     with pytest.raises(AssertionError, match="training data reaches"):
         bt._assert_no_overlap(idx, idx[50:], "fake-fold")
+
+
+# ------------------------------------------- state space conditioning, section 7
+def test_state_space_models_condition_on_realised_history():
+    """
+    Regression test for a silent failure.
+
+    A state space model extended with NaN endogenous values receives no new
+    information, so what looks like a one-day-ahead forecast becomes a
+    month-long extrapolation. It does not raise, it does not warn, and on a
+    falling market it produced a bias of +148 EUR/MWh where the correct
+    figure was +24.
+
+    The distinction matters because passing the realised series is easily
+    mistaken for leakage. It is not: get_prediction with dynamic=False
+    returns the one-step-ahead prediction for position t, conditioning on
+    observations through t-1 only.
+    """
+    import numpy as np
+    from dayahead.models.arima import PerHourSARIMAX
+
+    idx = pd.date_range("2021-01-01", "2021-06-30 23:00", freq="h",
+                        tz=cfg.LOCAL_TZ)
+    rng = np.random.default_rng(0)
+    # A clear downward level shift partway through the test window.
+    level = np.where(np.arange(len(idx)) < len(idx) * 0.8, 200.0, 60.0)
+    y = pd.Series(level + rng.normal(0, 5, len(idx)), index=idx)
+    X = pd.DataFrame(index=idx)
+
+    split = int(len(idx) * 0.8)
+    m = PerHourSARIMAX("t", order=(1, 1, 1), exog_cols=[]).fit(
+        X.iloc[:split], y.iloc[:split])
+
+    blind = m.predict(X.iloc[split:])
+    informed = m.predict(X.iloc[split:], y=y.iloc[split:])
+    truth = y.iloc[split:].to_numpy()
+
+    # The mechanism, not the magnitude. How fast an ARIMA converges after a
+    # level shift depends on its fitted MA coefficient, and on constant
+    # synthetic data that coefficient goes to roughly -1, making it an
+    # extreme smoother. So assert that the conditioning state moves at all,
+    # which is the thing that was broken.
+    hour0 = X.iloc[split:].index.hour == 0
+    b, i = blind[hour0], informed[hour0]
+
+    # Blind predictions receive no information and barely move.
+    assert np.nanstd(b) < 1.0
+
+    # Informed predictions track the realised series downward.
+    assert np.nanstd(i) > 10 * max(np.nanstd(b), 1e-9)
+    assert i[-1] < i[0] - 20
+
+    # And they end closer to the truth than the blind ones do.
+    assert abs(i[-1] - truth[hour0][-1]) < abs(b[-1] - truth[hour0][-1])
