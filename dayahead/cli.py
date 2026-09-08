@@ -6,6 +6,7 @@ Command line interface.
     py -m dayahead.cli report
     py -m dayahead.cli eda
     py -m dayahead.cli features
+    py -m dayahead.cli backtest
 
 Run from the repository root. No installation step required.
 """
@@ -156,6 +157,63 @@ def cmd_features(args) -> int:
     return 0
 
 
+def cmd_backtest(args) -> int:
+    import pandas as pd
+
+    from .evaluation.backtest import fold_table, run_backtest, summarise
+    from .features.build import build_features
+    from .models.naive import all_baselines
+
+    print("=" * 78)
+    print("SECTION 5: BACKTEST HARNESS")
+    print("=" * 78)
+
+    X, _ = build_features()
+    models = all_baselines()
+    print(f"\n  models: {[m.name for m in models]}")
+    preds = run_backtest(X, models, verbose=True)
+
+    cfg.PROCESSED.mkdir(parents=True, exist_ok=True)
+    cfg.REPORTS.mkdir(parents=True, exist_ok=True)
+    preds.to_parquet(cfg.PROCESSED / "backtest_predictions.parquet")
+
+    overall = summarise(preds)
+    by_regime = summarise(preds, by=["regime"])
+    by_hour = summarise(preds, by=["hour"])
+    per_fold = fold_table(preds)
+
+    overall.to_csv(cfg.REPORTS / "backtest_overall.csv", index=False)
+    by_regime.to_csv(cfg.REPORTS / "backtest_by_regime.csv", index=False)
+    per_fold.to_csv(cfg.REPORTS / "backtest_by_fold.csv", index=False)
+
+    cols = ["model", "n", "mae", "rmse", "bias", "skill", "pinball",
+            "coverage", "interval_width"]
+    show = [c for c in cols if c in overall.columns]
+    print("\n  overall")
+    print(overall[show].round(3).to_string(index=False))
+
+    print("\n  by regime")
+    rcols = ["model", "regime"] + [c for c in show if c != "model"]
+    print(by_regime[[c for c in rcols if c in by_regime.columns]]
+          .round(3).to_string(index=False))
+
+    print("\n  fold dispersion of MAE (DESIGN section 13 check 3)")
+    disp = per_fold.groupby("model")["mae"].describe()[
+        ["mean", "std", "min", "25%", "50%", "75%", "max"]]
+    print(disp.round(2).to_string())
+
+    print("\n  worst 3 folds per model")
+    for name, g in per_fold.groupby("model"):
+        worst = g.nlargest(3, "mae")[["fold", "regime", "mae"]]
+        print(f"    {name}: " + ", ".join(
+            f"{r.fold} {r.mae:.1f}" for r in worst.itertuples()))
+
+    print(f"\n  written: {cfg.PROCESSED / 'backtest_predictions.parquet'}")
+    print(f"           reports/backtest_overall.csv, _by_regime.csv, _by_fold.csv")
+    print("=" * 78)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="dayahead")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -175,6 +233,9 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("features", help="build and audit the feature matrix")
     p.set_defaults(func=cmd_features)
+
+    p = sub.add_parser("backtest", help="run the rolling origin backtest")
+    p.set_defaults(func=cmd_backtest)
 
     args = parser.parse_args(argv)
     return args.func(args)

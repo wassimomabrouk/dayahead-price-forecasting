@@ -375,3 +375,60 @@ Out of scope, deliberately, so that the project ends:
 A daily scheduled run and a dashboard are in scope, because day-ahead
 forecasting genuinely is a recurring daily job and a system that only exists
 inside a notebook does not represent how the problem is solved.
+
+---
+
+## 17. Section 5 baseline results
+
+Recorded when the harness first ran, before any model beyond the baselines
+existed. Placed here rather than in a report so that the state of knowledge at
+this point in the project is fixed in git history.
+
+| model | MAE | RMSE | skill vs B1 | pinball | coverage | width |
+|---|---|---|---|---|---|---|
+| B1 weekly naive | 42.47 | 68.56 | 0.000 | 18.64 | 0.626 | 77.19 |
+| B2 daily naive | 32.17 | 52.23 | 0.243 | 14.04 | 0.644 | 60.61 |
+
+59 folds, 2020-10 to 2025-08, 43,091 evaluated hours per model.
+
+**B2 beats B1 by 24%.** Section 5 described B1 as hard to beat and made it the
+primary denominator. On this data it is the easier target. The denominator is
+not changed: switching it after seeing that it flatters results is precisely
+what pre-commitment exists to prevent. The standing requirement to report
+skill against both baselines now does real work rather than serving as a
+formality, and no headline skill figure is reported against B1 alone.
+
+**Interval coverage is far below nominal.** Against a nominal 80%: 62.6% for
+B1 and 64.4% for B2 overall, and 27.7% for B1 within the crisis regime. The
+cause is structural rather than a coding error. The residual spread is
+unconditional and is fitted on an expanding window dominated by calm early
+data, then applied to volatile later months. Post-crisis B1 intervals are
+100.96 EUR/MWh wide and still cover only 77.6%, so they are simultaneously too
+wide on average and too narrow when it matters.
+
+This was anticipated in direction but not in magnitude. Section 3b showed the
+price standard deviation is U-shaped in forecast residual load, 21.67 mid-range
+against 37.62 and 65.66 in the tails, so an unconditional spread was always
+going to be miscalibrated. A 27.7% realised coverage against an 80% nominal is
+a larger failure than that reasoning implied. The conformal calibration in
+section 10 is therefore load bearing rather than a refinement, and it must be
+conditional on residual load rather than a single global width.
+
+**Fold dispersion justifies robustness check 3.** B1 has mean fold MAE 42.40
+against a median of 31.88, a maximum of 141.79 and a standard deviation of
+30.48. The distribution is heavily right skewed. Reporting the mean alone
+would overstate typical error by roughly a third, in the direction that makes
+any later model look better by comparison.
+
+**Skill is a ratio whose denominator also degrades.** B2 records its highest
+skill in the crisis regime (0.308) while its absolute MAE is worst there
+(55.86), because B1 deteriorates faster than B2 does. A model can therefore
+appear to gain skill in the crisis while forecasting it worse in absolute
+terms.
+
+Expectation 12.6, that skill will be lowest in the crisis regime, could fail
+for this reason alone, with no bearing on model quality. The expectation is
+left unedited, since amending a pre-committed prediction after seeing data
+that bears on it would void the commitment. Instead, absolute MAE by regime is
+reported next to skill by regime throughout, and the verdict on 12.6 is argued
+against both figures rather than the ratio alone.

@@ -1,0 +1,105 @@
+"""
+Backtest harness. The leakage guards matter more than the plumbing.
+"""
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from dayahead import config as cfg
+from dayahead.evaluation.splits import (
+    backtest_frame, eval_months, folds, locked_test_frame, regime_of,
+)
+
+
+def _frame(start="2018-10-01", end="2026-08-31 23:00"):
+    idx = pd.date_range(start, end, freq="h", tz=cfg.LOCAL_TZ)
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame({
+        "price_d1_same_hour": rng.normal(50, 10, len(idx)),
+        "price_d7_same_hour": rng.normal(50, 10, len(idx)),
+        "x_fc_residual": rng.normal(30000, 8000, len(idx)),
+        "y": rng.normal(50, 10, len(idx)),
+    }, index=idx)
+    df["is_usable"] = True
+    return df
+
+
+# ------------------------------------------------------------ locked test
+def test_locked_test_set_refuses_casual_access():
+    X = _frame()
+    with pytest.raises(PermissionError, match="locked test set"):
+        locked_test_frame(X)
+
+
+def test_locked_test_set_opens_with_the_explicit_flag():
+    X = _frame()
+    t = locked_test_frame(X, i_am_opening_the_locked_test_set=True)
+    assert len(t) > 8000
+    assert t.index.min() >= pd.Timestamp("2025-09-01", tz=cfg.LOCAL_TZ)
+
+
+def test_backtest_frame_never_contains_test_rows():
+    X = _frame()
+    bt = backtest_frame(X)
+    assert bt.index.max() < pd.Timestamp("2025-09-01", tz=cfg.LOCAL_TZ)
+
+
+# ----------------------------------------------------------------- folds
+def test_fold_count_matches_the_design():
+    """DESIGN.md section 7 pre-commits to 59 folds, 2020-10 through 2025-08."""
+    assert len(eval_months()) == 59
+    f = folds(_frame())
+    assert len(f) == 59
+    assert f[0]["month"] == "2020-10"
+    assert f[-1]["month"] == "2025-08"
+
+
+def test_training_always_ends_before_testing_begins():
+    for fold in folds(_frame()):
+        assert fold["train_index"].max() < fold["test_index"].min()
+        assert len(fold["train_index"].intersection(fold["test_index"])) == 0
+
+
+def test_training_window_expands():
+    f = folds(_frame())
+    sizes = [len(x["train_index"]) for x in f]
+    assert all(b > a for a, b in zip(sizes, sizes[1:]))
+
+
+def test_folds_cover_all_three_regimes():
+    seen = {fold["regime"] for fold in folds(_frame())}
+    assert seen == {"pre-crisis", "crisis", "post-crisis"}
+
+
+def test_regime_boundaries_are_where_the_design_says():
+    assert regime_of(pd.Timestamp("2021-08-31 23:00", tz=cfg.LOCAL_TZ)) == "pre-crisis"
+    assert regime_of(pd.Timestamp("2021-09-01 00:00", tz=cfg.LOCAL_TZ)) == "crisis"
+    assert regime_of(pd.Timestamp("2022-12-31 23:00", tz=cfg.LOCAL_TZ)) == "crisis"
+    assert regime_of(pd.Timestamp("2023-01-01 00:00", tz=cfg.LOCAL_TZ)) == "post-crisis"
+
+
+# ---------------------------------------------------------------- models
+def test_baselines_run_through_the_harness():
+    from dayahead.evaluation.backtest import run_backtest, summarise
+    from dayahead.models.naive import all_baselines
+
+    X = _frame(end="2021-06-30 23:00")
+    preds = run_backtest(X, all_baselines(), verbose=False)
+    assert set(preds["model"]) == {"B1_weekly_naive", "B2_daily_naive"}
+    assert preds["q10"].notna().all()
+    assert (preds["q10"] <= preds["q90"]).all()
+
+    table = summarise(preds)
+    assert len(table) == 2
+    b1 = table[table["model"] == "B1_weekly_naive"].iloc[0]
+    assert b1["skill"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_harness_raises_if_a_fold_would_leak(monkeypatch):
+    """The guard must actually fire, not merely exist."""
+    from dayahead.evaluation import backtest as bt
+
+    idx = pd.date_range("2020-01-01", periods=100, freq="h", tz=cfg.LOCAL_TZ)
+    with pytest.raises(AssertionError, match="training data reaches"):
+        bt._assert_no_overlap(idx, idx[50:], "fake-fold")
