@@ -603,3 +603,99 @@ advances.
 A regression test in tests/test_backtest.py asserts that the conditioning
 state moves, and the failure mode is documented in the module rather than
 silently corrected.
+
+---
+
+## 20. Section 8 results: gradient boosting on the price level
+
+Full backtest, 59 folds, same protocol and same folds as section 19.
+LightGBM fitted per delivery hour, nine quantile models per hour, point
+forecast taken as the median quantile.
+
+| model | MAE | RMSE | bias | skill vs B1 | pinball | coverage | width |
+|---|---|---|---|---|---|---|---|
+| SARIMAX | 20.16 | 35.09 | -0.14 | 0.525 | 15.52 | 0.576 | 41.88 |
+| SARIMA | 27.89 | 43.90 | -0.93 | 0.343 | 20.75 | 0.475 | 49.38 |
+| ARIMA | 30.73 | 48.19 | -0.91 | 0.277 | 20.37 | 0.514 | 56.34 |
+| B2 daily naive | 32.17 | 52.23 | +0.00 | 0.243 | 14.04 | 0.644 | 60.61 |
+| **LightGBM** | **41.35** | **77.34** | **-29.29** | **0.026** | 18.79 | 0.543 | 47.12 |
+| B1 weekly naive | 42.47 | 68.56 | -0.18 | 0.000 | 18.64 | 0.626 | 77.19 |
+
+LightGBM places second from last, ahead only of the weaker baseline.
+
+### The aggregate hides the mechanism
+
+| regime | MAE | bias | coverage |
+|---|---|---|---|
+| pre-crisis | 13.36 | -10.04 | 0.466 |
+| crisis | 108.97 | -104.30 | 0.192 |
+| post-crisis | 17.16 | +1.59 | 0.745 |
+
+Post-crisis the model is genuinely competitive: MAE 17.16 beats ARIMA at
+24.71 and SARIMA at 22.36, and its coverage of 0.745 is the best of any
+model in the ladder at that point. In the crisis the bias of -104.30 is
+almost exactly equal to the MAE of 108.97, meaning the model under-predicts
+in nearly every hour rather than erring in both directions.
+
+### Diagnosis: trees cannot extrapolate
+
+Distribution of crisis-regime predictions against outturn, 11,685 hours:
+
+| | outturn | prediction |
+|---|---|---|
+| mean | 218.2 | 113.9 |
+| std | 134.4 | 72.3 |
+| 75th percentile | 282.7 | 153.5 |
+| max | 871.0 | 418.6 |
+
+A gradient boosting model predicts leaf averages, so it cannot emit a value
+above the maximum of its training target. The expanding training window
+reaching into 2021 and 2022 contained prices mostly between 30 and 100
+EUR/MWh, and the crisis moved outturn far outside that range. The prediction
+ceiling of 418.6 against an outturn maximum of 871, together with a predicted
+standard deviation roughly half the realised one, is that ceiling made
+visible.
+
+SARIMAX is not subject to it. A linear model extrapolates freely, which turns
+out to be the correct inductive bias precisely when the target leaves the
+range it was estimated on. This is a sharper version of the section 19
+finding than the MAE ranking alone conveys: SARIMAX does not merely fit
+better, it fails more gracefully when the market does something it has not
+seen.
+
+### Verdicts on pre-committed expectations
+
+**12.4 REFUTED.** The prediction was that LightGBM would beat SARIMAX on MAE,
+with the advantage concentrated in high residual load hours where the merit
+order is non-linear. It loses overall, 41.35 against 20.16, and collapses in
+the crisis. The reasoning behind the expectation was sound as far as it went:
+section 3b did establish convexity in the price response to residual load,
+with a 6.6x ratio between the smallest and largest decile-to-decile step, and
+trees do capture that better than a linear specification does. What the
+expectation missed is that capturing curvature within the observed range is a
+different capability from extrapolating beyond it, and that the second
+mattered more over this sample.
+
+**12.7 REFUTED.** The prediction was that gradient boosting quantiles would
+be under-covered in the tails before conformal calibration. Post-crisis
+LightGBM records coverage of 0.745 against a nominal 0.80, better than
+SARIMAX at 0.786 in width terms and better than every classical model overall
+in the regime where its point forecast works. Conditional quantiles behaved
+roughly as intended. The interval problem in this ladder is not specific to
+gradient boosting, it is common to every model that derives spread from an
+unconditional residual distribution.
+
+### What follows, and what does not
+
+A variant is added in section 8b that predicts the difference from the B2
+naive baseline rather than the price level, so the target stays inside the
+training range even when the price does not. The level version is retained in
+every table and is not replaced. Reporting only the parameterisation that
+worked, after seeing that the first one failed, would be the exact
+substitution this document exists to prevent.
+
+Expectation 12.4 remains refuted regardless of how the anchored variant
+performs. It named a model class and a comparison, and that comparison has
+been made. If the anchored version does beat SARIMAX, the finding is that the
+target parameterisation mattered more than the model class, which is a more
+useful result than the original prediction would have been had it simply held.
