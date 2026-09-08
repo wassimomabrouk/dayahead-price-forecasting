@@ -485,3 +485,121 @@ per-hour one.
 wrong about what was computationally possible, and that is disclosed here
 rather than by silently editing section 10. No evaluation choice, metric,
 fold structure, regime boundary or pre-committed expectation is altered.
+
+---
+
+## 19. Section 7 results: the classical ladder
+
+Full backtest, 59 folds, 2020-10 to 2025-08, 43,091 evaluated hours per
+model. Fitted per delivery hour as recorded in section 18.
+
+| model | MAE | RMSE | bias | skill vs B1 | skill vs B2 | pinball | coverage | width |
+|---|---|---|---|---|---|---|---|---|
+| B1 weekly naive | 42.47 | 68.56 | -0.18 | 0.000 | -0.320 | 18.64 | 0.626 | 77.19 |
+| B2 daily naive | 32.17 | 52.23 | +0.00 | 0.243 | 0.000 | 14.04 | 0.644 | 60.61 |
+| ARIMA | 30.73 | 48.19 | -0.91 | 0.277 | 0.045 | 20.37 | 0.514 | 56.34 |
+| SARIMA | 27.89 | 43.90 | -0.93 | 0.343 | 0.133 | 20.75 | 0.475 | 49.38 |
+| SARIMAX | 20.16 | 35.09 | -0.14 | 0.525 | 0.373 | 15.52 | 0.576 | 41.88 |
+
+### The measured value of the fundamentals
+
+The gap from SARIMA to SARIMAX is what section 7 was built to produce: what
+the published day-ahead wind, solar and load forecasts are worth once
+autoregressive structure, weekly seasonality and calendar effects are already
+in the model.
+
+MAE falls from 27.89 to 20.16, a reduction of 27.7%. By regime the reduction
+is 21.2% in the crisis (50.93 to 40.15), 34.0% post-crisis (22.36 to 14.76)
+and 34.9% pre-crisis (10.46 to 6.81).
+
+The effect is smallest in the crisis. Fundamentals explain less when the price
+level is set by gas scarcity rather than by the domestic merit order, which is
+consistent with the mechanism rather than merely with the ranking.
+
+### Verdicts on pre-committed expectations
+
+**12.2 FAILED.** The prediction was that plain ARIMA would not beat B1. ARIMA
+records MAE 30.73 against B1's 42.47, a skill of 0.277, and it also edges past
+B2 at 32.17. The reasoning behind the expectation was that price
+autocorrelation alone carries little information. That was wrong: in the
+per-delivery-hour framing of section 18, an ARIMA on the daily series for a
+single hour is a considerably stronger object than an ARIMA on the pooled
+hourly series would have been, because the daily cycle has already been
+removed by construction. The expectation was written before that framing was
+adopted and was not revised to match, which is the correct outcome for a
+pre-commitment even though it made the prediction easier to falsify.
+
+**12.3 CONFIRMED.** SARIMAX beats both baselines, on every regime, on MAE and
+RMSE.
+
+**12.6 CONFIRMED, and without the ambiguity anticipated in section 17.** Skill
+is lowest in the crisis for SARIMAX, 0.503 against 0.549 post-crisis and 0.553
+pre-crisis. The concern recorded in section 17 was that skill could mislead
+because B1 degrades in the crisis as well. Here the two measures agree:
+absolute MAE is also worst in the crisis, 40.15 against 14.76 and 6.81. The
+verdict does not depend on which measure is used.
+
+### The selection rule cannot yet be applied
+
+Section 11 selects the champion on mean pinball loss. On these results that
+rule would choose B2, the daily naive baseline, at 14.04, ahead of SARIMAX at
+15.52, despite SARIMAX forecasting 37% better on MAE.
+
+The mechanism is visible in the interval widths. SARIMAX intervals average
+41.88 EUR/MWh against B2's 60.61. At the median quantile pinball loss reduces
+to half the absolute error, where SARIMAX wins decisively. It loses at the
+outer quantiles because its intervals are far too narrow, and mean pinball
+averages across all nine.
+
+Coverage confirms this directly: 0.576 for SARIMAX against a nominal 0.80, and
+0.192 within the crisis. Every model in the ladder shares the defect, because
+all of them derive quantiles from an unconditional spread of training
+residuals.
+
+The selection rule is not changed. It is not the rule that is failing but the
+inputs to it, and a rule rewritten to avoid an inconvenient answer is not a
+pre-commitment. What follows instead is that section 10 is a prerequisite for
+section 11 rather than a refinement after it: conformal calibration must
+repair the intervals before pinball loss can rank models meaningfully.
+
+### Fold dispersion
+
+| model | mean | median | sd | min | max |
+|---|---|---|---|---|---|
+| B1 weekly naive | 42.40 | 31.88 | 30.48 | 11.02 | 141.79 |
+| B2 daily naive | 32.11 | 26.68 | 18.36 | 9.28 | 79.88 |
+| ARIMA | 30.66 | 23.89 | 18.72 | 8.70 | 80.46 |
+| SARIMA | 27.85 | 21.40 | 17.39 | 7.56 | 75.80 |
+| SARIMAX | 20.12 | 13.89 | 14.74 | 4.82 | 63.45 |
+
+Every distribution is right skewed, so the mean overstates typical error for
+all five models. The worst folds are the same months across the ladder,
+concentrated in 2022-08, 2022-09, 2021-12 and 2022-03, which are the periods
+of steepest price movement during the crisis. No model has an idiosyncratic
+failure month, which suggests the difficulty is a property of those periods
+rather than of any particular specification.
+
+### A bug found and fixed before these numbers were produced
+
+The first implementation extended the state space models across the test
+window with missing endogenous values. The Kalman filter treats missing values
+as no observation, so the conditioning state never advanced and each nominal
+one-day-ahead forecast was in fact an extrapolation of up to a month from the
+fold boundary. It raised no error and produced no warning.
+
+It was caught by the bias column. ARIMA showed +31.9 EUR/MWh, SARIMA +26.1 and
+SARIMAX +23.2, against +7.8 and +1.0 for the baselines. A systematic
+over-prediction of that size is not a modelling weakness. On the fold
+following the August 2022 price peak, ARIMA recorded an MAE of 184.5 where the
+corrected figure is 80.5.
+
+Passing the realised series to the filter is not leakage. A one-step-ahead
+prediction with dynamic=False conditions on observations through t-1 only, and
+in the per-hour framing t-1 is the previous day at the same hour, cleared at
+the auction two days before delivery and therefore known at gate closure.
+Parameters are estimated on training data alone; only the filter state
+advances.
+
+A regression test in tests/test_backtest.py asserts that the conditioning
+state moves, and the failure mode is documented in the module rather than
+silently corrected.
