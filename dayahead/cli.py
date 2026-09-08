@@ -6,7 +6,7 @@ Command line interface.
     py -m dayahead.cli report
     py -m dayahead.cli eda
     py -m dayahead.cli features
-    py -m dayahead.cli backtest [--models all] [--quick]
+    py -m dayahead.cli backtest [--models baselines|classical|gbm|all]
 
 Run from the repository root. No installation step required.
 """
@@ -169,16 +169,47 @@ def cmd_backtest(args) -> int:
     print("=" * 78)
 
     X, _ = build_features()
-    models = all_baselines()
-    if args.models == "all":
+
+    models = []
+    if args.models in ("baselines", "all"):
+        models += all_baselines()
+    if args.models in ("classical", "all"):
         from .models.arima import ladder
-        models = models + ladder()
+        models += ladder()
+    if args.models in ("gbm", "all"):
+        from .models.gbm import lightgbm
+        models += [lightgbm()]
+    if not models:
+        print("  nothing to run")
+        return 1
     print(f"\n  models: {[m.name for m in models]}")
     preds = run_backtest(X, models, verbose=True, every=args.every)
 
     cfg.PROCESSED.mkdir(parents=True, exist_ok=True)
     cfg.REPORTS.mkdir(parents=True, exist_ok=True)
-    preds.to_parquet(cfg.PROCESSED / "backtest_predictions.parquet")
+
+    # Predictions from models not in this run are reused rather than
+    # recomputed, so a 45 minute LightGBM run does not require a two hour
+    # SARIMAX rerun to produce a combined table. Rows for models that were
+    # just run are always replaced, never merged, so a stale result cannot
+    # survive a rerun of the same model. --fresh discards the cache entirely.
+    store = cfg.PROCESSED / "backtest_predictions.parquet"
+    just_run = set(preds["model"])
+    if store.exists() and not args.fresh:
+        old = pd.read_parquet(store)
+        kept = old[~old["model"].isin(just_run)]
+        if len(kept):
+            print(f"  reusing cached predictions for "
+                  f"{sorted(set(kept['model']))}")
+            preds = pd.concat([kept, preds], ignore_index=True)
+    preds.to_parquet(store)
+
+    n_folds_by_model = preds.groupby("model")["fold"].nunique()
+    if n_folds_by_model.nunique() > 1:
+        print("\n  WARNING: models were run over different numbers of folds")
+        print(n_folds_by_model.to_string())
+        print("  The comparison below is not like for like. Rerun with "
+              "--fresh, or rerun the short models over the full set.")
 
     overall = summarise(preds)
     by_regime = summarise(preds, by=["regime"])
@@ -238,8 +269,13 @@ def main(argv=None) -> int:
     p.set_defaults(func=cmd_features)
 
     p = sub.add_parser("backtest", help="run the rolling origin backtest")
-    p.add_argument("--models", choices=["baselines", "all"], default="baselines",
-                   help="'all' adds ARIMA, SARIMA and SARIMAX (slow)")
+    p.add_argument("--models",
+                   choices=["baselines", "classical", "gbm", "all"],
+                   default="baselines",
+                   help="which models to run; results for models not run are "
+                        "reused from the prediction cache")
+    p.add_argument("--fresh", action="store_true",
+                   help="discard cached predictions instead of reusing them")
     p.add_argument("--every", type=int, default=1,
                    help="run every Nth fold, for a fast smoke test")
     p.set_defaults(func=cmd_backtest)

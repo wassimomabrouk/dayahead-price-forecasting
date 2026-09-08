@@ -157,3 +157,38 @@ def test_state_space_models_condition_on_realised_history():
 
     # And they end closer to the truth than the blind ones do.
     assert abs(i[-1] - truth[hour0][-1]) < abs(b[-1] - truth[hour0][-1])
+
+
+# ------------------------------------------------- LightGBM, section 8
+def test_quantile_crossing_is_repaired():
+    """
+    Nine independently fitted quantile models are not guaranteed to be
+    ordered. Left alone that produces negative interval widths and a
+    meaningless coverage figure, so predictions are sorted per row.
+    """
+    import numpy as np
+    from dayahead.models.gbm import PerHourLightGBM
+
+    qs = [0.1, 0.5, 0.9]
+    crossed = {0.1: np.array([50.0, 10.0]),
+               0.5: np.array([30.0, 20.0]),
+               0.9: np.array([40.0, 30.0])}
+    fixed, n = PerHourLightGBM._rearrange(crossed, qs)
+    # One adjacent pair is out of order: [50, 30, 40] has a single negative
+    # step. The second row is already sorted.
+    assert n == 1
+    assert list(fixed[0.1]) == [30.0, 10.0]
+    assert list(fixed[0.9]) == [50.0, 30.0]
+    for a, b in zip(qs, qs[1:]):
+        assert (fixed[a] <= fixed[b]).all()
+
+
+def test_rearrangement_leaves_ordered_predictions_alone():
+    import numpy as np
+    from dayahead.models.gbm import PerHourLightGBM
+
+    qs = [0.1, 0.5, 0.9]
+    ok = {0.1: np.array([10.0]), 0.5: np.array([20.0]), 0.9: np.array([30.0])}
+    fixed, n = PerHourLightGBM._rearrange(ok, qs)
+    assert n == 0
+    assert fixed[0.5][0] == 20.0
