@@ -432,3 +432,56 @@ left unedited, since amending a pre-committed prediction after seeing data
 that bears on it would void the commitment. Instead, absolute MAE by regime is
 reported next to skill by regime throughout, and the verdict on 12.6 is argued
 against both figures rather than the ratio alone.
+
+---
+
+## 18. Deviation: how the classical models are fitted
+
+Recorded before section 7 was implemented, after benchmarking rather than
+after seeing any result. The model ladder is unchanged: ARIMA, SARIMA and
+SARIMAX are all still fitted and all still serve the purposes described in
+section 10. What changes is only how the data is arranged when fitting them.
+
+**What was specified.** Section 10 step 3 describes a seasonal ARIMA on the
+hourly price series with seasonal period 24, fitted on the expanding window
+of section 7.
+
+**Why it cannot be done.** Fit time for that specification grows from 4.0
+seconds at 2,000 observations to 14.5 at 5,000 and 16.9 at 10,000. At the
+full expanding window of roughly 60,000 hourly observations the process was
+terminated by the operating system before completing. This follows from the
+dimension of the state space representation, so it is a property of the
+specification and not of the machine it was run on.
+
+**The two options.**
+
+A rolling hourly window preserves the 24-hour seasonal period but abandons
+the expanding window. That would make the classical models the only ones in
+the ladder trained on a different quantity of data, so any later comparison
+against LightGBM would confound model specification with training window.
+
+A per-delivery-hour framing fits 24 separate series, one for each delivery
+hour, each at daily frequency with roughly 2,500 observations, with seasonal
+period 7 for the weekly cycle. It preserves the expanding window. Estimated
+cost is 33 to 48 minutes for the full ladder across 59 folds.
+
+**The choice, and the principle behind it.** The per-delivery-hour framing is
+adopted. The expanding window is a pre-committed evaluation choice; the
+seasonal period is an implementation detail. Where only one of the two can
+survive a feasibility constraint, the evaluation choice is kept.
+
+The daily cycle is not discarded. It is represented by estimating a separate
+model for each delivery hour rather than by a seasonal term inside one model,
+which is the standard construction in the published electricity price
+forecasting literature.
+
+**A side effect worth stating.** This aligns the classical models with the
+LightGBM construction already planned in section 10 step 5, which is also one
+model per delivery hour. Expectation 12.4 therefore compares model classes on
+identical data arrangements rather than comparing a pooled model against a
+per-hour one.
+
+**Status.** This is a deviation, not a correction. Section 10 as written was
+wrong about what was computationally possible, and that is disclosed here
+rather than by silently editing section 10. No evaluation choice, metric,
+fold structure, regime boundary or pre-committed expectation is altered.
