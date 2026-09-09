@@ -892,3 +892,83 @@ Selection uses conformal-global calibrated predictions restricted to
 post-crisis folds. The ranking on calibrated post-crisis pinball loss decides
 the champion, and section 12 opens the locked test set once, with the
 champion and its calibration procedure both fixed.
+
+---
+
+## 23. Section 11 result: champion selection
+
+The rule from section 11, applied unchanged: lowest mean pinball loss across
+backtest folds restricted to the post-crisis regime, ties broken by MAE, on
+conformal global calibrated predictions per section 22. 53 calibrated folds,
+23,369 post-crisis hours, eight models.
+
+### Ranking on the selection criterion
+
+| model | MAE | RMSE | pinball | coverage | width |
+|---|---|---|---|---|---|
+| **N-HiTS** | 16.31 | 28.30 | **6.67** | 0.814 | 49.63 |
+| LightGBM anchored | 17.64 | 28.76 | 7.19 | 0.832 | 66.07 |
+| SARIMAX | 14.76 | 24.59 | 8.90 | 0.862 | 125.25 |
+| LightGBM level | 17.16 | 27.27 | 9.92 | 0.796 | 102.21 |
+| B2 daily naive | 26.92 | 41.53 | 11.50 | 0.845 | 113.39 |
+| ARIMA | 24.71 | 36.82 | 13.98 | 0.870 | 172.20 |
+| B1 weekly naive | 32.69 | 50.65 | 14.17 | 0.859 | 154.59 |
+| SARIMA | 22.36 | 33.79 | 14.58 | 0.866 | 179.75 |
+
+**Champion: N-HiTS**, ahead of LightGBM anchored by 0.520 pinball.
+
+### The regime restriction did not change the answer
+
+Section 11 committed to selecting on post-crisis folds only, on the grounds
+that deployment and the locked test both sit in that regime and that the full
+backtest would weight a market structure that no longer exists. That
+commitment was made before any model was fitted.
+
+On these results the restriction makes no difference: N-HiTS leads both
+rankings. The restriction was worth committing to in advance and turned out
+not to bind, which is the ordinary outcome for a precaution.
+
+### A note on why SARIMAX has the best post-crisis MAE and finishes third
+
+SARIMAX records the lowest post-crisis MAE in the table, 14.76 against 16.31
+for N-HiTS, and still ranks third on the selection criterion. The reason is
+in the last column. Its calibrated intervals average 125.25 EUR/MWh against
+49.63 for N-HiTS, two and a half times wider for slightly better central
+accuracy, and pinball loss charges for that width across all nine quantiles.
+
+This is the selection rule working as intended rather than a quirk. Section 6
+chose pinball loss precisely because a point forecast alone does not describe
+a forecast that will be used to make a decision under uncertainty, and
+section 13 will dispatch a battery on these intervals. A model that is
+marginally more accurate at the median while being unable to say how
+uncertain it is would be the wrong choice for that purpose.
+
+Had the rule been MAE, the champion would have been SARIMAX. That is stated
+here so the dependence of the outcome on a pre-committed choice is visible
+rather than implied.
+
+### Post-calibration coverage now overshoots outside the crisis
+
+Post-crisis coverage sits above nominal for most models: 0.870 for ARIMA,
+0.866 for SARIMA, 0.862 for SARIMAX, 0.814 for N-HiTS, against a target of
+0.80.
+
+This is the section 22 finding seen from the other side. The conformal
+correction is fitted across all regimes, so a single global width sized to
+cover crisis errors necessarily over-covers the calmer period. The overall
+figures near 0.80 in section 22 are an average of over-coverage post-crisis
+and under-coverage of 0.47 to 0.50 during the crisis, not uniform calibration.
+
+N-HiTS is the least affected in both directions, 0.814 post-crisis and 0.753
+in the crisis, while the models with unconditional spreads swing between
+roughly 0.47 and 0.87. That is a further consequence of conditional intervals
+being correctable and unconditional ones only being inflatable, and it did
+not enter the selection rule, which considered pinball loss alone.
+
+### State before section 12
+
+The champion is fixed and recorded in reports/champion.json, together with
+both rankings and the flag locked_test_opened: false. The calibration
+procedure is fixed. The locked test set has not been read.
+
+Section 12 opens it once.
