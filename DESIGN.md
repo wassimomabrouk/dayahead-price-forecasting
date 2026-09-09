@@ -793,3 +793,102 @@ Section 10 runs before section 11 regardless. Conformal calibration may
 alter the ranking, and applying a selection rule to intervals known to be
 miscalibrated would make the choice arbitrary even when the answer looks
 stable.
+
+---
+
+## 22. Section 10 results: conformal calibration
+
+Calibration uses the stored backtest predictions rather than a fresh
+hold-out. Fold m is corrected using folds m-12 to m-1, all of which closed
+before fold m began. 53 of 59 folds are calibrated; the first six lack enough
+history and are excluded, and all three variants are compared on the same
+38,723 hours so the difference is calibration and not a different sample.
+
+### Overall, nominal coverage 0.80
+
+| model | coverage | width | pinball | coverage | width | pinball |
+|---|---|---|---|---|---|---|
+| | *uncalibrated* | | | *conformal global* | | |
+| N-HiTS | 0.696 | 50.11 | 8.29 | **0.799** | **61.31** | 8.23 |
+| LightGBM anchored | 0.642 | 53.79 | 10.94 | 0.777 | 83.51 | 10.78 |
+| B2 daily naive | 0.630 | 63.99 | 15.11 | 0.775 | 112.87 | 14.67 |
+| B1 weekly naive | 0.617 | 82.16 | 20.11 | 0.776 | 152.61 | 19.40 |
+| SARIMAX | 0.573 | 45.00 | 16.95 | 0.733 | 122.87 | 16.66 |
+| SARIMA | 0.466 | 52.41 | 22.53 | 0.737 | 162.42 | 21.54 |
+| ARIMA | 0.498 | 59.78 | 22.11 | 0.731 | 161.12 | 21.21 |
+| LightGBM level | 0.525 | 50.75 | 20.67 | 0.685 | 120.74 | 17.85 |
+
+### Only one model calibrates cleanly
+
+N-HiTS reaches 0.799 against a nominal 0.800 for a 22% increase in width,
+50.11 to 61.31. Nothing else converges. SARIMAX requires intervals 2.7 times
+wider, 45.00 to 122.87, and still reaches only 0.733. SARIMA requires 3.1
+times wider for 0.737.
+
+The mechanism is that a conformal correction is marginal. It shifts each
+quantile by a constant and can therefore repair the average, but it cannot
+repair the shape of an interval that fails to respond to conditions. A model
+whose spread is the same on every day must be widened enough to cover its
+hard days, which leaves it absurdly wide on its easy ones, and the marginal
+target is still missed because the correction is fitted on a mixture the
+model cannot distinguish.
+
+Section 21 recorded that N-HiTS was the only model whose width tracked the
+regime, roughly doubling in the crisis while SARIMAX narrowed. This section
+is the consequence of that difference stated in coverage terms: conditional
+intervals can be corrected, unconditional ones can only be inflated.
+
+### The conditional variant did not work, contrary to the section 3b reasoning
+
+Conditional calibration bins the calibration residuals by forecast residual
+load, on the reasoning from section 3b that price variance is U-shaped in
+that variable: 21.67 EUR/MWh in the middle deciles against 37.62 and 65.66 at
+the ends.
+
+It does not beat the global variant on coverage. N-HiTS records 0.799 under
+both. SARIMAX is worse conditional than global, 0.715 against 0.733, as is
+ARIMA, 0.711 against 0.731. Conditional is slightly better on pinball loss
+for every model, but slightly worse on the coverage it was introduced to fix.
+
+The expectation was wrong in a specific and instructive way. Section 3b
+measured the variance of the *price* against residual load, and that
+measurement stands. What the conditional scheme needs is different: that the
+*models' forecast errors* are miscalibrated along the same axis. Those are
+not the same claim. A model that already uses residual load as a feature,
+which all of these do, has had the opportunity to absorb that structure into
+its point forecast, so the residual miscalibration lies elsewhere.
+
+Both variants are reported. Global is adopted as the calibration method for
+section 11, on coverage, which is what the section was for.
+
+### The crisis remains uncovered
+
+Coverage within the crisis regime after global calibration:
+
+| model | uncalibrated | calibrated | width after |
+|---|---|---|---|
+| N-HiTS | 0.683 | 0.753 | 93.27 |
+| LightGBM anchored | 0.478 | 0.684 | 134.63 |
+| B2 daily naive | 0.367 | 0.652 | 134.98 |
+| SARIMAX | 0.192 | 0.499 | 149.09 |
+| SARIMA | 0.153 | 0.472 | 166.56 |
+
+No model reaches nominal coverage in the crisis, and the best is N-HiTS at
+0.753. This is a limitation of the method rather than a defect in the
+implementation. A rolling twelve month calibration window can only correct
+for error behaviour it has already seen, and the first months of the crisis
+had no precedent in the preceding year. The alternative, a calibration window
+long enough to contain a comparable episode, would mean correcting today's
+forecasts with residuals from a market structure that no longer exists.
+
+Stated plainly: these intervals are trustworthy in a market resembling the
+recent past and are not trustworthy through a structural break. That is worth
+saying explicitly rather than reporting an aggregate coverage figure that
+averages the two situations.
+
+### Consequence for section 11
+
+Selection uses conformal-global calibrated predictions restricted to
+post-crisis folds. The ranking on calibrated post-crisis pinball loss decides
+the champion, and section 12 opens the locked test set once, with the
+champion and its calibration procedure both fixed.
