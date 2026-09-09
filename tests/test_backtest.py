@@ -192,3 +192,50 @@ def test_rearrangement_leaves_ordered_predictions_alone():
     fixed, n = PerHourLightGBM._rearrange(ok, qs)
     assert n == 0
     assert fixed[0.5][0] == 20.0
+
+
+def test_anchored_model_can_predict_outside_the_training_range():
+    """
+    The defect that section 8 exposed, stated as a test.
+
+    A tree predicts leaf averages, so a model trained on the price level can
+    never emit a value above the maximum it saw. Measured on the real crisis
+    folds: true prices reached 871 EUR/MWh, predictions capped at 418.6.
+
+    Anchoring the target on a naive baseline removes the level, so the
+    residual stays inside the training range even when the price does not.
+    This test asserts the ceiling is gone, which is the whole reason the
+    variant exists.
+    """
+    import numpy as np
+    from dayahead.models.gbm import lightgbm_anchored
+
+    idx = pd.date_range("2021-01-01", "2021-12-31 23:00", freq="h",
+                        tz=cfg.LOCAL_TZ)
+    rng = np.random.default_rng(0)
+    # The level triples on a fixed date, and the split is on that same date,
+    # so no part of the high regime can leak into training. An earlier
+    # version cut by position after filtering rows, which silently moved the
+    # boundary and put high prices in the training window.
+    shift_date = pd.Timestamp("2021-10-01", tz=cfg.LOCAL_TZ)
+    level = np.where(idx < shift_date, 50.0, 150.0)
+    y = pd.Series(level + rng.normal(0, 5, len(idx)), index=idx)
+
+    X = pd.DataFrame(index=idx)
+    X["price_d1_same_hour"] = y.shift(freq=pd.Timedelta(days=1)).reindex(idx)
+    X["noise"] = rng.normal(0, 1, len(idx))
+    ok = X["price_d1_same_hour"].notna()
+    X, y = X[ok], y[ok]
+
+    train = X.index < shift_date
+    m = lightgbm_anchored().fit(X[train], y[train])
+    # Skip the first day after the shift: its anchor is still the old level,
+    # so no model could know the level had moved.
+    future = X.index >= shift_date + pd.Timedelta(days=2)
+    pred = m.predict(X[future])
+
+    train_max = y[train].max()
+    assert np.nanmax(pred) > train_max * 1.5, (
+        f"anchored predictions capped at {np.nanmax(pred):.1f} "
+        f"against a training maximum of {train_max:.1f}"
+    )

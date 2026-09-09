@@ -179,6 +179,9 @@ def cmd_backtest(args) -> int:
     if args.models in ("gbm", "all"):
         from .models.gbm import lightgbm
         models += [lightgbm()]
+    if args.models in ("gbm-anchored", "all"):
+        from .models.gbm import lightgbm_anchored
+        models += [lightgbm_anchored()]
     if not models:
         print("  nothing to run")
         return 1
@@ -270,7 +273,8 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("backtest", help="run the rolling origin backtest")
     p.add_argument("--models",
-                   choices=["baselines", "classical", "gbm", "all"],
+                   choices=["baselines", "classical", "gbm",
+                            "gbm-anchored", "all"],
                    default="baselines",
                    help="which models to run; results for models not run are "
                         "reused from the prediction cache")

@@ -181,5 +181,69 @@ class PerHourLightGBM(Forecaster):
         }
 
 
+class AnchoredLightGBM(PerHourLightGBM):
+    """
+    LightGBM on the difference from a naive anchor, rather than on the price
+    level.
+
+    Why this exists
+    ---------------
+
+    The level version fails in the crisis regime and the mechanism is
+    structural, not a tuning problem. A gradient boosting model predicts leaf
+    averages, so it cannot emit a value outside the range of its training
+    target. Measured on the crisis folds: true prices reach 871 EUR/MWh with
+    a mean of 218, while predictions cap out at 418.6 with a mean of 113.9.
+    Predicted standard deviation is 72.3 against 134.4 realised. The whole
+    distribution is compressed toward the range the model was trained on.
+
+    SARIMAX escapes this because a linear model extrapolates freely, which is
+    the correct inductive bias when the target leaves its historical range.
+
+    Predicting `y - anchor` instead removes the level. The residual is
+    roughly stationary and stays inside the training range even when the
+    price does not, so the ceiling stops binding. The level is restored by
+    adding the anchor back, and the anchor itself is an admissible feature
+    already audited in section 4.
+
+    This does not rescue expectation 12.4, which predicted LightGBM would
+    beat SARIMAX and is refuted by the level version. Both variants are
+    reported in every table.
+    """
+
+    def __init__(self, anchor_col: str = "price_d1_same_hour",
+                 name: str = "LightGBM_anchored", **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.anchor_col = anchor_col
+
+    def _anchor(self, X: pd.DataFrame) -> np.ndarray:
+        if self.anchor_col not in X.columns:
+            raise KeyError(f"{self.name}: anchor '{self.anchor_col}' not in matrix")
+        return X[self.anchor_col].to_numpy(dtype=float)
+
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> "AnchoredLightGBM":
+        residual = pd.Series(y.to_numpy(dtype=float) - self._anchor(X),
+                             index=y.index, name="residual")
+        return super().fit(X, residual)
+
+    def predict_quantiles(self, X: pd.DataFrame,
+                          quantiles=None) -> dict[float, np.ndarray]:
+        qs = super().predict_quantiles(X, quantiles)
+        anchor = self._anchor(X)
+        return {q: v + anchor for q, v in qs.items()}
+
+
 def lightgbm() -> PerHourLightGBM:
+    """Section 8 as specified: gradient boosting on the price level."""
     return PerHourLightGBM()
+
+
+def lightgbm_anchored() -> AnchoredLightGBM:
+    """
+    The same model on the difference from B2, the daily naive baseline.
+
+    B2 is the anchor rather than B1 because section 17 measured it as the
+    stronger of the two, MAE 32.17 against 42.47, so it leaves a smaller and
+    better behaved residual for the model to learn.
+    """
+    return AnchoredLightGBM()
