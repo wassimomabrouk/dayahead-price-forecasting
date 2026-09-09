@@ -8,6 +8,7 @@ Command line interface.
     py -m dayahead.cli features
     py -m dayahead.cli backtest [--models baselines|classical|gbm|gbm-anchored|nhits|all]
     py -m dayahead.cli conformal
+    py -m dayahead.cli select
 
 Run from the repository root. No installation step required.
 """
@@ -307,9 +308,99 @@ def cmd_conformal(args) -> int:
     print(crisis[["model", "variant", "coverage", "width", "pinball"]]
           .round(3).to_string(index=False))
 
-    cond.to_parquet(cfg.PROCESSED / "calibrated_predictions.parquet")
+    # The global variant is the one adopted in DESIGN.md section 22, on
+    # coverage, so that is what downstream sections consume. The conditional
+    # variant is kept beside it for inspection rather than discarded, since
+    # its failure to beat global is itself a reported result.
+    glob.to_parquet(cfg.PROCESSED / "calibrated_predictions.parquet")
+    cond.to_parquet(cfg.PROCESSED / "calibrated_predictions_conditional.parquet")
     print(f"\n  written: reports/conformal_overall.csv, _by_regime.csv")
     print(f"           {cfg.PROCESSED / 'calibrated_predictions.parquet'}")
+    print("=" * 78)
+    return 0
+
+
+def cmd_select(args) -> int:
+    """
+    Apply the selection rule fixed in DESIGN.md section 11.
+
+    Champion is the lowest mean pinball loss across backtest folds restricted
+    to the post-crisis regime, ties broken by MAE, computed on conformal
+    global calibrated predictions per section 22.
+
+    The rule is not re-derived here and is not adjustable from the command
+    line. Selection that can be steered by a flag is not a pre-commitment.
+    """
+    import json
+
+    import pandas as pd
+
+    from .evaluation.backtest import summarise
+    from .evaluation.conformal import calibrate_all
+
+    SELECTION_REGIME = "post-crisis"
+
+    print("=" * 78)
+    print("SECTION 11: MODEL SELECTION")
+    print("=" * 78)
+
+    store = cfg.PROCESSED / "backtest_predictions.parquet"
+    if not store.exists():
+        print("  no backtest predictions. Run: py -m dayahead.cli backtest")
+        return 1
+    preds = pd.read_parquet(store)
+
+    calibrated, _ = calibrate_all(preds, conditional=False)
+    print(f"\n  models:     {calibrated['model'].nunique()}")
+    print(f"  folds:      {calibrated['fold'].nunique()} calibrated")
+    print(f"  criterion:  mean pinball loss, {SELECTION_REGIME} folds only")
+    print("  calibration: conformal global")
+
+    post = calibrated[calibrated["regime"] == SELECTION_REGIME]
+    ranking = summarise(post).sort_values(["pinball", "mae"]).reset_index(drop=True)
+    full = summarise(calibrated).sort_values(["pinball", "mae"]).reset_index(drop=True)
+
+    cols = ["model", "n", "mae", "rmse", "pinball", "coverage", "interval_width"]
+    show = [c for c in cols if c in ranking.columns]
+
+    print(f"\n  ranking on {SELECTION_REGIME} folds, the selection criterion")
+    print(ranking[show].round(3).to_string(index=False))
+
+    print("\n  ranking on all folds, for comparison only")
+    print(full[show].round(3).to_string(index=False))
+
+    champion = ranking.iloc[0]["model"]
+    runner_up = ranking.iloc[1]["model"] if len(ranking) > 1 else None
+    margin = (float(ranking.iloc[1]["pinball"] - ranking.iloc[0]["pinball"])
+              if len(ranking) > 1 else float("nan"))
+
+    same = full.iloc[0]["model"] == champion
+    print(f"\n  CHAMPION: {champion}")
+    print(f"  runner-up: {runner_up}, behind by {margin:.3f} pinball")
+    print(f"  full-backtest ranking agrees: {same}")
+    if not same:
+        print(f"    on all folds the leader would be {full.iloc[0]['model']}. "
+              "The restriction to post-crisis is doing work here, and was "
+              "fixed in section 11 before any result existed.")
+
+    record = {
+        "champion": champion,
+        "criterion": "mean pinball loss",
+        "selection_regime": SELECTION_REGIME,
+        "calibration": "conformal global, 12 fold rolling window",
+        "runner_up": runner_up,
+        "pinball_margin": margin,
+        "agrees_with_full_backtest": bool(same),
+        "ranking_selection_regime": ranking[show].to_dict("records"),
+        "ranking_all_folds": full[show].to_dict("records"),
+        "locked_test_opened": False,
+    }
+    with (cfg.REPORTS / "champion.json").open("w", encoding="utf-8") as f:
+        json.dump(record, f, indent=2, default=str)
+    ranking.to_csv(cfg.REPORTS / "selection_ranking.csv", index=False)
+
+    print(f"\n  written: reports/champion.json, reports/selection_ranking.csv")
+    print("  The locked test set has not been opened.")
     print("=" * 78)
     return 0
 
@@ -349,6 +440,9 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("conformal", help="calibrate forecast intervals")
     p.set_defaults(func=cmd_conformal)
+
+    p = sub.add_parser("select", help="apply the section 11 selection rule")
+    p.set_defaults(func=cmd_select)
 
     args = parser.parse_args(argv)
     return args.func(args)

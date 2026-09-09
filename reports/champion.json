@@ -1,0 +1,158 @@
+{
+  "champion": "N-HiTS",
+  "criterion": "mean pinball loss",
+  "selection_regime": "post-crisis",
+  "calibration": "conformal global, 12 fold rolling window",
+  "runner_up": "LightGBM_anchored",
+  "pinball_margin": 0.5198934228627614,
+  "agrees_with_full_backtest": true,
+  "ranking_selection_regime": [
+    {
+      "model": "N-HiTS",
+      "n": 23369,
+      "mae": 16.312434295414963,
+      "rmse": 28.296405018000605,
+      "pinball": 6.66722216152715,
+      "coverage": 0.8139400921658986,
+      "interval_width": 49.631131357143055
+    },
+    {
+      "model": "LightGBM_anchored",
+      "n": 23369,
+      "mae": 17.63608711262518,
+      "rmse": 28.755246964040516,
+      "pinball": 7.187115584389911,
+      "coverage": 0.8319996576661389,
+      "interval_width": 66.07077544517212
+    },
+    {
+      "model": "SARIMAX",
+      "n": 23369,
+      "mae": 14.756025898090947,
+      "rmse": 24.586659294815053,
+      "pinball": 8.901204897644568,
+      "coverage": 0.8620822457101288,
+      "interval_width": 125.2526023077275
+    },
+    {
+      "model": "LightGBM",
+      "n": 23369,
+      "mae": 17.15730688421279,
+      "rmse": 27.27191837265281,
+      "pinball": 9.917898709047776,
+      "coverage": 0.7957550601223844,
+      "interval_width": 102.21339893796655
+    },
+    {
+      "model": "B2_daily_naive",
+      "n": 23369,
+      "mae": 26.91947622919252,
+      "rmse": 41.527929012168556,
+      "pinball": 11.497795737372872,
+      "coverage": 0.8453506782489623,
+      "interval_width": 113.38743225640808
+    },
+    {
+      "model": "ARIMA",
+      "n": 23369,
+      "mae": 24.70583037667407,
+      "rmse": 36.81551073421287,
+      "pinball": 13.983594080869914,
+      "coverage": 0.8696135906542856,
+      "interval_width": 172.19695684629852
+    },
+    {
+      "model": "B1_weekly_naive",
+      "n": 23369,
+      "mae": 32.691171637639606,
+      "rmse": 50.647163438511775,
+      "pinball": 14.169345051326307,
+      "coverage": 0.8591296161581582,
+      "interval_width": 154.5910755530832
+    },
+    {
+      "model": "SARIMA",
+      "n": 23369,
+      "mae": 22.36248835351433,
+      "rmse": 33.78512654656496,
+      "pinball": 14.578950004819522,
+      "coverage": 0.8660190851127563,
+      "interval_width": 179.74976436524184
+    }
+  ],
+  "ranking_all_folds": [
+    {
+      "model": "N-HiTS",
+      "n": 38725,
+      "mae": 20.32394946041825,
+      "rmse": 33.850198462230345,
+      "pinball": 8.234411847904276,
+      "coverage": 0.7985130540026512,
+      "interval_width": 61.31087240631995
+    },
+    {
+      "model": "LightGBM_anchored",
+      "n": 38725,
+      "mae": 25.968569929433517,
+      "rmse": 43.83753456797114,
+      "pinball": 10.784442576577284,
+      "coverage": 0.7770432537120723,
+      "interval_width": 83.50659937194901
+    },
+    {
+      "model": "B2_daily_naive",
+      "n": 38725,
+      "mae": 34.56300400258231,
+      "rmse": 54.83369839583146,
+      "pinball": 14.673049056050498,
+      "coverage": 0.7753131052291801,
+      "interval_width": 112.86335920981278
+    },
+    {
+      "model": "SARIMAX",
+      "n": 38725,
+      "mae": 21.814497270980667,
+      "rmse": 36.91971388119111,
+      "pinball": 16.659451367789735,
+      "coverage": 0.7331439638476437,
+      "interval_width": 122.86382342917258
+    },
+    {
+      "model": "LightGBM",
+      "n": 38725,
+      "mae": 45.41331737119363,
+      "rmse": 81.54546153092308,
+      "pinball": 17.849836284842908,
+      "coverage": 0.6853195610071013,
+      "interval_width": 120.73932505184438
+    },
+    {
+      "model": "B1_weekly_naive",
+      "n": 38725,
+      "mae": 45.73135493867011,
+      "rmse": 72.03910588605672,
+      "pinball": 19.39768425338211,
+      "coverage": 0.7764234990316333,
+      "interval_width": 152.6035043615236
+    },
+    {
+      "model": "ARIMA",
+      "n": 38725,
+      "mae": 33.07128475439147,
+      "rmse": 50.61388837897205,
+      "pinball": 21.211237037116796,
+      "coverage": 0.7306132989025178,
+      "interval_width": 161.1171109307587
+    },
+    {
+      "model": "SARIMA",
+      "n": 38725,
+      "mae": 29.98969762501524,
+      "rmse": 46.110386568128646,
+      "pinball": 21.535000987268003,
+      "coverage": 0.7370690768237572,
+      "interval_width": 162.41344903054323
+    }
+  ],
+  "locked_test_opened": false
+}

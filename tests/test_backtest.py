@@ -273,3 +273,34 @@ def test_unknown_quantile_columns_are_absent_not_guessed():
 
     m = _quantile_columns(["unique_id", "ds", "NHITS-median"])
     assert set(m) == {0.5}
+
+
+# --------------------------------------------------- selection, section 11
+def test_selection_rule_constants_match_the_design():
+    """
+    The rule was fixed in DESIGN.md section 11 before any model was fitted:
+    lowest mean pinball loss on post-crisis folds, ties broken by MAE. This
+    pins the two constants that could quietly drift.
+    """
+    import inspect
+
+    from dayahead import cli
+
+    src = inspect.getsource(cli.cmd_select)
+    assert 'SELECTION_REGIME = "post-crisis"' in src
+    assert "conditional=False" in src, "section 22 adopted conformal global"
+    assert 'sort_values(["pinball", "mae"])' in src
+
+
+def test_selection_does_not_touch_the_locked_test_set():
+    """
+    Selection reads backtest predictions only. If it ever reached for the
+    locked test set, the section 12 evaluation would be meaningless.
+    """
+    import inspect
+
+    from dayahead import cli
+
+    src = inspect.getsource(cli.cmd_select)
+    assert "locked_test_frame" not in src
+    assert "i_am_opening_the_locked_test_set" not in src
