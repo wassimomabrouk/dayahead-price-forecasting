@@ -239,3 +239,37 @@ def test_anchored_model_can_predict_outside_the_training_range():
         f"anchored predictions capped at {np.nanmax(pred):.1f} "
         f"against a training maximum of {train_max:.1f}"
     )
+
+
+# ---------------------------------------------------------- N-HiTS, section 9
+def test_mqloss_columns_map_to_the_right_quantiles():
+    """
+    neuralforecast labels MQLoss outputs by symmetric interval, not by
+    quantile: 'NHITS-lo-80.0' is the 10th percentile and 'NHITS-hi-80.0' is
+    the 90th. Getting that mapping backwards would invert every interval
+    while leaving the median correct, so coverage would look plausible and be
+    meaningless. The mapping is derived rather than hardcoded, and this test
+    pins it.
+    """
+    from dayahead.models.nhits import _quantile_columns
+
+    cols = ["unique_id", "ds", "NHITS-lo-80.0", "NHITS-lo-60.0",
+            "NHITS-lo-40.0", "NHITS-lo-20.0", "NHITS-median",
+            "NHITS-hi-20.0", "NHITS-hi-40.0", "NHITS-hi-60.0",
+            "NHITS-hi-80.0"]
+    m = _quantile_columns(cols)
+
+    assert m[0.1] == "NHITS-lo-80.0"
+    assert m[0.5] == "NHITS-median"
+    assert m[0.9] == "NHITS-hi-80.0"
+    assert m[0.3] == "NHITS-lo-40.0"
+    assert m[0.7] == "NHITS-hi-40.0"
+    assert len(m) == 9
+
+
+def test_unknown_quantile_columns_are_absent_not_guessed():
+    """A renamed column should produce a missing key, never a wrong one."""
+    from dayahead.models.nhits import _quantile_columns
+
+    m = _quantile_columns(["unique_id", "ds", "NHITS-median"])
+    assert set(m) == {0.5}

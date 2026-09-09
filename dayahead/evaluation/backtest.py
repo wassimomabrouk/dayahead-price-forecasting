@@ -87,7 +87,13 @@ def run_backtest(X: pd.DataFrame, models: list[Forecaster],
             except TypeError:
                 point = fitted.predict(Xte)
             try:
-                qs = fitted.predict_quantiles(Xte)
+                # Sequence models need the realised series to advance their
+                # conditioning window, exactly as the state space models do.
+                # Used for conditioning only, never for fitting.
+                try:
+                    qs = fitted.predict_quantiles(Xte, y=yte)
+                except TypeError:
+                    qs = fitted.predict_quantiles(Xte)
             except NotImplementedError:
                 qs = {}
 

@@ -6,7 +6,7 @@ Command line interface.
     py -m dayahead.cli report
     py -m dayahead.cli eda
     py -m dayahead.cli features
-    py -m dayahead.cli backtest [--models baselines|classical|gbm|all]
+    py -m dayahead.cli backtest [--models baselines|classical|gbm|gbm-anchored|nhits|all]
 
 Run from the repository root. No installation step required.
 """
@@ -183,6 +183,9 @@ def cmd_backtest(args) -> int:
     if args.models in ("gbm-anchored", "all"):
         from .models.gbm import lightgbm_anchored
         models += [lightgbm_anchored()]
+    if args.models in ("nhits", "all"):
+        from .models.nhits import nhits
+        models += [nhits()]
     if not models:
         print("  nothing to run")
         return 1
@@ -275,7 +278,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("backtest", help="run the rolling origin backtest")
     p.add_argument("--models",
                    choices=["baselines", "classical", "gbm",
-                            "gbm-anchored", "all"],
+                            "gbm-anchored", "nhits", "all"],
                    default="baselines",
                    help="which models to run; results for models not run are "
                         "reused from the prediction cache")
