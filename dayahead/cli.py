@@ -78,8 +78,9 @@ def cmd_validate(args) -> int:
         print("    none")
 
     ident = report["residual_identity"]
-    print(f"\n  residual identity exact: {ident['exact']}  "
-          f"(corr {ident['corr']:.6f}, max abs diff {ident['max_abs_diff']:.6g})")
+    print(f"\n  residual identity holds: {ident['holds']}  "
+          f"(corr {ident['corr']:.6f}, max abs diff {ident['max_abs_diff']:.4g} MW, "
+          f"tolerance {ident['tolerance_mw']} MW)")
 
     d = report["dst"]
     print(f"  DST: {d['n_23h_days']} short days, {d['n_25h_days']} long days, "

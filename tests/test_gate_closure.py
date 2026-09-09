@@ -74,8 +74,19 @@ def test_spring_forward_hour_does_not_exist():
     hour arithmetic will raise or silently shift. Recorded as a test so the
     trap stays visible.
     """
-    with pytest.raises(ValueError, match="nonexistent"):
+    with pytest.raises(Exception) as caught:
         pd.Timestamp("2019-03-31 02:00", tz=cfg.LOCAL_TZ)
+
+    # Both pandas majors refuse the timestamp, but they say so differently.
+    # 3.x raises ValueError through the stdlib zoneinfo backend, with
+    # "nonexistent" in the message. 2.x raises
+    # pytz.exceptions.NonExistentTimeError, whose message is only the
+    # timestamp itself, so the meaning sits in the class name instead.
+    # Matching either keeps the test valid on both, which matters because
+    # neuralforecast pins this project to pandas 2.x and that pin may not
+    # be permanent.
+    where = f"{type(caught.value).__name__} {caught.value}".lower()
+    assert "nonexistent" in where, f"unexpected exception: {where}"
 
 
 def test_autumn_back_hour_is_ambiguous():
