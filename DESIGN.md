@@ -699,3 +699,97 @@ performs. It named a model class and a comparison, and that comparison has
 been made. If the anchored version does beat SARIMAX, the finding is that the
 target parameterisation mattered more than the model class, which is a more
 useful result than the original prediction would have been had it simply held.
+
+---
+
+## 21. Section 9 results: N-HiTS, and the full ladder
+
+Full backtest, 59 folds, same protocol and same folds as sections 19 and 20.
+43,091 evaluated hours per model.
+
+| model | MAE | RMSE | bias | skill vs B1 | pinball | coverage | width |
+|---|---|---|---|---|---|---|---|
+| **N-HiTS** | **18.88** | **32.20** | -0.83 | **0.563** | **7.71** | **0.693** | 46.66 |
+| SARIMAX | 20.16 | 35.09 | -0.14 | 0.525 | 15.52 | 0.576 | 41.88 |
+| LightGBM anchored | 23.91 | 41.64 | -1.76 | 0.437 | 10.06 | 0.646 | 49.94 |
+| SARIMA | 27.89 | 43.90 | -0.93 | 0.343 | 20.75 | 0.475 | 49.38 |
+| ARIMA | 30.73 | 48.19 | -0.91 | 0.277 | 20.37 | 0.514 | 56.34 |
+| B2 daily naive | 32.17 | 52.23 | +0.00 | 0.243 | 14.04 | 0.644 | 60.61 |
+| LightGBM level | 41.35 | 77.34 | -29.29 | 0.026 | 18.79 | 0.543 | 47.12 |
+| B1 weekly naive | 42.47 | 68.56 | -0.18 | 0.000 | 18.64 | 0.626 | 77.19 |
+
+N-HiTS leads on every metric that ranks models: MAE, RMSE, skill, pinball
+loss and coverage. It also has the tightest fold dispersion, standard
+deviation 11.40 against SARIMAX at 14.74, and the lowest worst fold, 56.84
+against 63.45.
+
+### Verdict on the pre-committed expectation
+
+**12.5 REFUTED.** The prediction was that N-HiTS would not beat LightGBM,
+reasoning that deep forecasting architectures are strongest across many
+related series and that a single series is their least favourable setting.
+It beats both LightGBM variants, and everything else in the ladder.
+
+The reasoning was not obviously wrong in general, and it is a common finding
+on tabular forecasting problems. What it underweighted is that a single
+series observed hourly for eight years is not a small-data problem in the way
+that phrasing suggests. Nearly 60,000 observations with strong repeated
+structure is ample for a 4 million parameter model, particularly one whose
+inductive bias, multi-rate decomposition of a periodic signal, matches the
+structure section 3b measured directly.
+
+### The interval result matters more than the point forecast
+
+The margin on MAE over SARIMAX is 6%. The margin on pinball loss is 50%, and
+the coverage difference is larger still.
+
+Coverage within the crisis regime, where every other model failed:
+
+| model | crisis coverage | crisis width | post-crisis width |
+|---|---|---|---|
+| N-HiTS | 0.683 | 80.84 | 38.07 |
+| LightGBM anchored | 0.478 | 69.51 | 50.16 |
+| SARIMAX | 0.192 | 36.52 | 53.91 |
+| SARIMA | 0.153 | 39.12 | 63.57 |
+
+N-HiTS roughly doubles its interval width in the crisis relative to
+post-crisis, from 38.07 to 80.84. SARIMAX moves in the opposite direction,
+narrowing from 53.91 to 36.52 in precisely the period where uncertainty was
+greatest, which is what an unconditional residual spread fitted on an
+expanding window will do when recent history is calmer than the present.
+
+This is the first genuinely conditional uncertainty estimate in the project.
+Section 3b established that price variance is U-shaped in forecast residual
+load, 21.67 EUR/MWh mid-range against 37.62 and 65.66 in the tails, and
+argued that intervals would have to respond to that. Only this model does.
+
+### Two caveats that qualify the result
+
+**The framing is not held constant.** Every other model in the ladder is
+fitted per delivery hour, per section 18. N-HiTS is one model on the hourly
+sequence, per section 10 step 6. Part of the margin may come from seeing the
+sequence directly rather than from the architecture, and this experiment
+cannot separate the two. Testing that would require refitting a classical
+model on the pooled hourly series, which section 18 established is not
+computationally feasible, or fitting N-HiTS per hour, which would discard the
+structure it exists to exploit. The ambiguity is recorded rather than
+resolved.
+
+**Coverage is still short of nominal.** 0.693 against 0.80. Best in the
+ladder and still under-covered by 11 percentage points. Section 10 remains
+necessary; it is no longer the difference between usable and unusable
+intervals.
+
+### Consequences for section 11
+
+Section 11 selects on mean pinball loss restricted to post-crisis folds. On
+these results N-HiTS leads post-crisis pinball at 6.72 against SARIMAX at
+7.54 and LightGBM anchored at 7.10, so the selection rule and the MAE
+ranking now agree. The disagreement recorded in section 20, where MAE and
+pinball pointed at different models, has resolved without any rule being
+changed.
+
+Section 10 runs before section 11 regardless. Conformal calibration may
+alter the ranking, and applying a selection rule to intervals known to be
+miscalibrated would make the choice arbitrary even when the answer looks
+stable.
