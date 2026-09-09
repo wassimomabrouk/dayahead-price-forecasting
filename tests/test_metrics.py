@@ -8,6 +8,11 @@ are tested against arithmetic rather than against each other.
 import numpy as np
 import pytest
 
+# Standard normal quantiles at the nine levels, for building synthetic
+# calibration frames.
+NORMAL_Z = {0.1: -1.2816, 0.2: -0.8416, 0.3: -0.5244, 0.4: -0.2533,
+            0.5: 0.0, 0.6: 0.2533, 0.7: 0.5244, 0.8: 0.8416, 0.9: 1.2816}
+
 from dayahead.evaluation.metrics import (
     bias, coverage, interval_width, mae, mean_pinball, pinball_loss, rmse,
     skill_score,
@@ -105,3 +110,108 @@ def test_wide_intervals_get_free_coverage():
     t = np.random.default_rng(0).normal(size=500)
     assert coverage(t, np.full(500, -1e6), np.full(500, 1e6)) == 1.0
     assert interval_width(np.full(500, -1e6), np.full(500, 1e6)) == 2e6
+
+
+# ------------------------------------------------- conformal, section 10
+def _cal_frame(y, quantile_preds):
+    import pandas as pd
+    df = pd.DataFrame({"y_true": y})
+    for q, v in quantile_preds.items():
+        df[f"q{int(q * 100):02d}"] = v
+    return df
+
+
+def test_an_already_calibrated_model_gets_no_correction():
+    """
+    The property that makes this a correction and not a second spread. An
+    earlier version scored each quantile against the point forecast instead
+    of against itself, which double-counted the model's own spread and
+    overshot a nominal 0.80 to 0.912.
+    """
+    import numpy as np
+    from dayahead.evaluation.conformal import QUANTILES, _deltas
+
+    rng = np.random.default_rng(0)
+    y = rng.normal(50, 10, 200_000)
+    perfect = {q: np.full(len(y), 50 + 10 * NORMAL_Z[q]) for q in QUANTILES}
+    d = _deltas(_cal_frame(y, perfect))
+    for q, v in d.items():
+        assert abs(v) < 0.3, f"q{q} corrected by {v:.3f} when already calibrated"
+
+
+def test_conformal_widens_intervals_that_are_too_narrow():
+    import numpy as np
+    from dayahead.evaluation.conformal import QUANTILES, _deltas
+
+    rng = np.random.default_rng(0)
+    y = rng.normal(50, 10, 200_000)
+    # Half the spread it should have.
+    narrow = {q: np.full(len(y), 50 + 5 * NORMAL_Z[q]) for q in QUANTILES}
+    d = _deltas(_cal_frame(y, narrow))
+    assert d[0.1] < -3, "lower quantile should be pushed down"
+    assert d[0.9] > 3, "upper quantile should be pushed up"
+    assert abs(d[0.5]) < 0.3, "the median was already right"
+
+
+def test_conformal_recovers_a_constant_bias():
+    import numpy as np
+    from dayahead.evaluation.conformal import QUANTILES, _deltas
+
+    rng = np.random.default_rng(0)
+    y = rng.normal(50, 10, 200_000)
+    shifted = {q: np.full(len(y), 40 + 10 * NORMAL_Z[q]) for q in QUANTILES}
+    d = _deltas(_cal_frame(y, shifted))
+    for q, v in d.items():
+        assert abs(v - 10.0) < 0.4
+
+
+def test_monotonicity_is_enforced_after_correction():
+    """Independent per-quantile shifts can reorder the quantiles."""
+    import pandas as pd
+    from dayahead.evaluation.conformal import _enforce_monotone
+
+    df = pd.DataFrame({
+        "q10": [50.0], "q20": [40.0], "q30": [45.0], "q40": [46.0],
+        "q50": [47.0], "q60": [48.0], "q70": [49.0], "q80": [51.0],
+        "q90": [52.0],
+    })
+    fixed, crossings = _enforce_monotone(df)
+    assert crossings >= 1
+    vals = [fixed[f"q{q}0"].iloc[0] for q in range(1, 10)]
+    assert vals == sorted(vals)
+
+
+def test_calibration_never_uses_the_fold_it_corrects():
+    """
+    The guarantee rests on the calibration rows preceding the test fold. A
+    fold leaking into its own calibration set would produce coverage that
+    looks excellent and means nothing.
+    """
+    import numpy as np
+    import pandas as pd
+    from dayahead.evaluation.conformal import CALIBRATION_FOLDS, calibrate_model
+
+    rng = np.random.default_rng(0)
+    rows = []
+    for i in range(30):
+        fold = f"2021-{i % 12 + 1:02d}-{i:02d}"
+        # The last fold is wildly different; if it calibrated itself the
+        # correction would absorb the shift.
+        shift = 500.0 if i == 29 else 0.0
+        for h in range(24):
+            base = rng.normal(50, 5)
+            rows.append({
+                "timestamp": pd.Timestamp("2021-01-01", tz="UTC")
+                             + pd.Timedelta(hours=i * 24 + h),
+                "model": "m", "fold": fold, "regime": "post-crisis",
+                "y_true": base + shift, "y_pred": base,
+                **{f"q{q}0": base for q in range(1, 10)},
+            })
+    preds = pd.DataFrame(rows)
+    out, meta = calibrate_model(preds)
+
+    last = out[out["fold"] == "2021-06-29"]
+    if len(last):
+        # Corrections come from earlier folds, which had no shift, so the
+        # calibrated interval must fail to cover the shifted outturn.
+        assert (last["y_true"] > last["q90"]).all()

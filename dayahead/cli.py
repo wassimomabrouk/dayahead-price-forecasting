@@ -7,6 +7,7 @@ Command line interface.
     py -m dayahead.cli eda
     py -m dayahead.cli features
     py -m dayahead.cli backtest [--models baselines|classical|gbm|gbm-anchored|nhits|all]
+    py -m dayahead.cli conformal
 
 Run from the repository root. No installation step required.
 """
@@ -255,6 +256,64 @@ def cmd_backtest(args) -> int:
     return 0
 
 
+def cmd_conformal(args) -> int:
+    import pandas as pd
+
+    from .evaluation.conformal import calibrate_all, coverage_table
+    from .features.build import build_features
+
+    print("=" * 78)
+    print("SECTION 10: CONFORMAL CALIBRATION")
+    print("=" * 78)
+
+    store = cfg.PROCESSED / "backtest_predictions.parquet"
+    if not store.exists():
+        print("  no backtest predictions. Run: py -m dayahead.cli backtest")
+        return 1
+    preds = pd.read_parquet(store)
+
+    X, _ = build_features()
+    features = X.copy()
+    features.index.name = "timestamp"
+
+    print(f"\n  models: {sorted(preds['model'].unique())}")
+    print(f"  rows:   {len(preds):,}")
+
+    glob, info_g = calibrate_all(preds, conditional=False)
+    cond, info_c = calibrate_all(preds, features, conditional=True)
+
+    any_meta = next(iter(info_g.values()))
+    print(f"  calibrated folds: {any_meta['folds_calibrated']} of "
+          f"{preds['fold'].nunique()}  "
+          f"(first {len(any_meta['folds_skipped'])} lack enough history)")
+
+    table = coverage_table(preds, glob, cond)
+    order = ["uncalibrated", "conformal_global", "conformal_conditional"]
+    table["variant"] = pd.Categorical(table["variant"], order, ordered=True)
+    table = table.sort_values(["model", "variant"])
+
+    print("\n  coverage against nominal 0.80, and interval width")
+    print(table[["model", "variant", "n", "coverage", "width", "pinball"]]
+          .round(3).to_string(index=False))
+
+    by_regime = coverage_table(preds, glob, cond, by=["regime"])
+    by_regime["variant"] = pd.Categorical(by_regime["variant"], order, ordered=True)
+    by_regime = by_regime.sort_values(["model", "regime", "variant"])
+    by_regime.to_csv(cfg.REPORTS / "conformal_by_regime.csv", index=False)
+    table.to_csv(cfg.REPORTS / "conformal_overall.csv", index=False)
+
+    print("\n  crisis regime only")
+    crisis = by_regime[by_regime["regime"] == "crisis"]
+    print(crisis[["model", "variant", "coverage", "width", "pinball"]]
+          .round(3).to_string(index=False))
+
+    cond.to_parquet(cfg.PROCESSED / "calibrated_predictions.parquet")
+    print(f"\n  written: reports/conformal_overall.csv, _by_regime.csv")
+    print(f"           {cfg.PROCESSED / 'calibrated_predictions.parquet'}")
+    print("=" * 78)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="dayahead")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -287,6 +346,9 @@ def main(argv=None) -> int:
     p.add_argument("--every", type=int, default=1,
                    help="run every Nth fold, for a fast smoke test")
     p.set_defaults(func=cmd_backtest)
+
+    p = sub.add_parser("conformal", help="calibrate forecast intervals")
+    p.set_defaults(func=cmd_conformal)
 
     args = parser.parse_args(argv)
     return args.func(args)
