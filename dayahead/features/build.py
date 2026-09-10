@@ -39,6 +39,54 @@ def _check_index(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
     return inside.union(spine).union(index[[0, -1]])
 
 
+def build_leaky_features(*, i_am_measuring_the_leak: bool = False,
+                         panel: pd.DataFrame | None = None
+                         ) -> tuple[pd.DataFrame, list[FeatureSpec]]:
+    """
+    A deliberately leaky feature matrix, for DESIGN.md section 13 check 1.
+
+    Every published day-ahead forecast is replaced by the realised outturn:
+    fc_load becomes load_real and fc_residual becomes residual_real. Wind and
+    solar have no realised counterpart in the ingested set, so they are left
+    as forecasts, which makes this a lower bound on the size of the leak
+    rather than the full extent of it.
+
+    This exists to put a number on the project's central claim. Section 2
+    asserts that excluding realised outturn costs accuracy; this measures how
+    much. It is not a model, it is an instrument, and nothing produced here
+    is ever reported as a forecast.
+
+    The gate closure check is deliberately bypassed, so the guard keyword is
+    mandatory and the function is called from exactly one place.
+    """
+    if not i_am_measuring_the_leak:
+        raise PermissionError(
+            "build_leaky_features constructs a matrix that violates gate "
+            "closure. It exists only for the section 13 leak quantification."
+        )
+    if panel is None:
+        panel = load_panel()
+    swapped = panel.copy()
+    swapped["fc_load"] = panel["load_real"]
+    swapped["fc_residual"] = panel["residual_real"]
+
+    local = swapped.tz_convert(cfg.LOCAL_TZ)
+    index = local.index
+    price = local[cfg.TARGET].astype("float64")
+
+    frames, specs = [], []
+    for frame, spec in (cal.build(index), lags.build(price, index),
+                        exog.build(local, index)):
+        frames.append(frame)
+        specs.extend(spec)
+
+    X = pd.concat(frames, axis=1)
+    X["y"] = price
+    X["is_usable"] = local["is_usable"] & X.drop(
+        columns=["y", "is_usable"], errors="ignore").notna().all(axis=1)
+    return X, specs
+
+
 def build_features(panel: pd.DataFrame | None = None,
                    verbose: bool = False) -> tuple[pd.DataFrame, list[FeatureSpec]]:
     """

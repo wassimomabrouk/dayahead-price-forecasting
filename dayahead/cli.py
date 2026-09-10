@@ -9,6 +9,7 @@ Command line interface.
     py -m dayahead.cli backtest [--models baselines|classical|gbm|gbm-anchored|nhits|all]
     py -m dayahead.cli conformal
     py -m dayahead.cli select
+    py -m dayahead.cli locked-test   (opens the held-out year, once)
 
 Run from the repository root. No installation step required.
 """
@@ -405,6 +406,121 @@ def cmd_select(args) -> int:
     return 0
 
 
+def cmd_locked_test(args) -> int:
+    """Section 12. Opens the locked test set."""
+    import json
+
+    import pandas as pd
+
+    from .evaluation.locked_test import (
+        anatomy, calibrate_test, evaluate_locked_test,
+    )
+
+    champ_path = cfg.REPORTS / "champion.json"
+    if not champ_path.exists():
+        print("  no champion. Run: py -m dayahead.cli select")
+        return 1
+    with champ_path.open(encoding="utf-8") as f:
+        champion = json.load(f)
+
+    print("=" * 78)
+    print("SECTION 12: LOCKED TEST EVALUATION")
+    print("=" * 78)
+    print(f"\n  champion:    {champion['champion']}")
+    print(f"  criterion:   {champion['criterion']}, "
+          f"{champion['selection_regime']} folds")
+    print(f"  calibration: {champion['calibration']}")
+
+    if champion.get("locked_test_opened") and not args.force:
+        print("\n  The locked test set has already been opened, and the "
+              "result is recorded")
+        print("  in reports/locked_test.json. Repeating it and reporting the "
+              "better run")
+        print("  would defeat the purpose of holding it back. Pass --force "
+              "only to")
+        print("  reproduce, never to reselect.")
+        return 1
+
+    print("\n  opening the locked test set")
+    parts = evaluate_locked_test(verbose=True)
+
+    backtest = pd.read_parquet(cfg.PROCESSED / "backtest_predictions.parquet")
+    test_preds = pd.concat(
+        [parts["main"], parts["leak"], parts["recent"]], ignore_index=True)
+    calibrated = calibrate_test(test_preds, backtest)
+
+    a = anatomy(calibrated)
+
+    print("\n  headline, locked test year")
+    cols = ["model", "n", "mae", "rmse", "bias", "skill", "pinball",
+            "coverage", "interval_width"]
+    show = [c for c in cols if c in a["overall"].columns]
+    print(a["overall"][show].round(3).to_string(index=False))
+
+    # Expectation 12.1: test MAE should exceed the backtest average.
+    from .evaluation.backtest import summarise
+    bt_cal = summarise(backtest)
+    champ = champion["champion"]
+    bt_mae = float(bt_cal.loc[bt_cal["model"] == champ, "mae"].iloc[0])
+    te_mae = float(a["overall"].loc[a["overall"]["model"] == champ,
+                                    "mae"].iloc[0])
+    print(f"\n  expectation 12.1: locked test MAE should exceed backtest MAE")
+    print(f"    backtest {bt_mae:.2f}   locked test {te_mae:.2f}   "
+          f"{'CONFIRMED' if te_mae > bt_mae else 'REFUTED'}")
+
+    print("\n  check 1, leak quantification")
+    leak_mae = float(a["overall"].loc[a["overall"]["model"] == "N-HiTS_LEAKY",
+                                      "mae"].iloc[0])
+    print(f"    published forecasts {te_mae:.2f}   realised outturn "
+          f"{leak_mae:.2f}   improvement {100 * (1 - leak_mae / te_mae):.1f}%")
+    print("    This is what the gate closure constraint costs, and what a")
+    print("    leaky implementation would report instead.")
+
+    print("\n  check 2, trained on post-2023 only")
+    rec_mae = float(a["overall"].loc[a["overall"]["model"] == "N-HiTS_post2023",
+                                     "mae"].iloc[0])
+    print(f"    full history {te_mae:.2f}   post-2023 only {rec_mae:.2f}")
+
+    print("\n  check 3, month to month dispersion")
+    disp = a["by_month"].groupby("model")["mae"].describe()[
+        ["mean", "std", "min", "50%", "max"]]
+    print(disp.round(2).to_string())
+
+    print("\n  check 5, MAE by delivery hour, champion")
+    bh = a["by_hour"]
+    bh = bh[bh["model"] == champ].set_index("hour")["mae"]
+    print("    best hours:  " + ", ".join(
+        f"{h:02d}h {v:.1f}" for h, v in bh.nsmallest(3).items()))
+    print("    worst hours: " + ", ".join(
+        f"{h:02d}h {v:.1f}" for h, v in bh.nlargest(3).items()))
+
+    print("\n  check 6, conditional subsets")
+    print(a["by_condition"].round(3).to_string(index=False))
+
+    cfg.REPORTS.mkdir(parents=True, exist_ok=True)
+    calibrated.to_parquet(cfg.PROCESSED / "locked_test_predictions.parquet")
+    for name, frame in a.items():
+        frame.to_csv(cfg.REPORTS / f"locked_test_{name}.csv", index=False)
+
+    champion["locked_test_opened"] = True
+    champion["locked_test"] = {
+        "champion_mae": te_mae,
+        "backtest_mae": bt_mae,
+        "expectation_12_1": "CONFIRMED" if te_mae > bt_mae else "REFUTED",
+        "leak_mae": leak_mae,
+        "leak_improvement_pct": 100 * (1 - leak_mae / te_mae),
+        "post2023_mae": rec_mae,
+        "overall": a["overall"][show].to_dict("records"),
+    }
+    with champ_path.open("w", encoding="utf-8") as f:
+        json.dump(champion, f, indent=2, default=str)
+
+    print(f"\n  written: reports/locked_test_*.csv, reports/champion.json")
+    print("  The locked test set is now open. It is not reopened.")
+    print("=" * 78)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="dayahead")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -443,6 +559,13 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("select", help="apply the section 11 selection rule")
     p.set_defaults(func=cmd_select)
+
+    p = sub.add_parser("locked-test",
+                       help="section 12: open the held-out year, once")
+    p.add_argument("--force", action="store_true",
+                   help="reproduce an evaluation already recorded; never "
+                        "for reselection")
+    p.set_defaults(func=cmd_locked_test)
 
     args = parser.parse_args(argv)
     return args.func(args)

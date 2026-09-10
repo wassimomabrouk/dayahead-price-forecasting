@@ -103,6 +103,44 @@ def folds(X: pd.DataFrame) -> list[dict]:
     return out
 
 
+def test_folds(X: pd.DataFrame, *,
+               i_am_opening_the_locked_test_set: bool = False) -> list[dict]:
+    """
+    Monthly folds across the locked test window.
+
+    Same protocol as the backtest: fold m trains on everything up to the last
+    hour of month m-1, which here includes the entire backtest window, and
+    forecasts every delivery hour of month m. Using a different protocol for
+    the final evaluation than for model development would make the two
+    incomparable.
+
+    Guarded exactly as locked_test_frame is. Section 12 is the only caller.
+    """
+    if not i_am_opening_the_locked_test_set:
+        raise PermissionError(
+            "test_folds reads the locked test set. See DESIGN.md section 7."
+        )
+    months = pd.period_range(TEST_START, TEST_END, freq="M")
+    out = []
+    for month in months:
+        test_start = _ts(str(month.start_time.date()))
+        test_end = _ts(str(month.end_time.date())) + pd.Timedelta(hours=23)
+        train_end = test_start - pd.Timedelta(hours=1)
+
+        train_idx = X.index[X.index <= train_end]
+        test_idx = X.index[(X.index >= test_start) & (X.index <= test_end)]
+        if len(test_idx) == 0:
+            continue
+        out.append({
+            "month": str(month),
+            "train_index": train_idx,
+            "test_index": test_idx,
+            "train_end": train_end,
+            "regime": regime_of(test_start),
+        })
+    return out
+
+
 def regime_of(ts: pd.Timestamp) -> str:
     for name, start, end in REGIMES:
         if _ts(start) <= ts <= _ts(end):

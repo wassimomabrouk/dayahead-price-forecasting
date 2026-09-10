@@ -304,3 +304,102 @@ def test_selection_does_not_touch_the_locked_test_set():
     src = inspect.getsource(cli.cmd_select)
     assert "locked_test_frame" not in src
     assert "i_am_opening_the_locked_test_set" not in src
+
+
+# ------------------------------------------------ locked test, section 12
+def test_test_folds_are_guarded():
+    from dayahead.evaluation.splits import test_folds
+    with pytest.raises(PermissionError, match="locked test"):
+        test_folds(_frame())
+
+
+def test_test_folds_cover_the_designed_window():
+    from dayahead.evaluation.splits import test_folds
+    f = test_folds(_frame(), i_am_opening_the_locked_test_set=True)
+    assert len(f) == 12
+    assert f[0]["month"] == "2025-09"
+    assert f[-1]["month"] == "2026-08"
+    for fold in f:
+        assert fold["train_index"].max() < fold["test_index"].min()
+
+
+def test_leaky_features_are_guarded():
+    """
+    The leak measurement builds a matrix that violates gate closure on
+    purpose. It must be impossible to construct by accident.
+    """
+    from dayahead.features.build import build_leaky_features
+    with pytest.raises(PermissionError, match="gate closure"):
+        build_leaky_features()
+
+
+@pytest.mark.skipif(not cfg.PANEL.exists(), reason="panel not built")
+def test_leaky_features_actually_substitute_the_realised_series():
+    """A check that measures nothing would report a leak of zero."""
+    import numpy as np
+    from dayahead.features.build import build_features, build_leaky_features
+
+    honest, _ = build_features()
+    leaky, _ = build_leaky_features(i_am_measuring_the_leak=True)
+
+    a = honest["x_fc_load"].to_numpy(dtype=float)
+    b = leaky["x_fc_load"].to_numpy(dtype=float)
+    ok = np.isfinite(a) & np.isfinite(b)
+    assert not np.allclose(a[ok], b[ok]), "no substitution took place"
+
+
+# ------------------------------------------------ N-HiTS DST cascade, section 12
+def test_nhits_advances_history_even_when_a_day_cannot_be_predicted():
+    """
+    Regression test for the most expensive bug in the project.
+
+    A local delivery day spans 23 or 25 hours across a DST transition, and
+    the N-HiTS horizon is fixed at 24. The original code skipped such a day
+    with a bare continue, which also skipped the statement that extends the
+    conditioning history. The window then stopped advancing and every
+    remaining day of the fold produced nothing.
+
+    It cost 837 hours of the locked test year, 9.6%, and it was invisible in
+    the metrics because the missing rows simply reduced n. This asserts the
+    history update is unconditional.
+    """
+    import inspect
+
+    from dayahead.models.nhits import NHiTSForecaster
+
+    src = inspect.getsource(NHiTSForecaster.predict_quantiles)
+    body = src.split("for _, block in")[1]
+
+    # Only a continue at the day-loop's own indentation level can skip the
+    # history update. A continue nested deeper, such as the one in the loop
+    # over quantiles, is harmless, so the check is level-aware rather than a
+    # bare substring search.
+    day_level = [
+        line for line in body.splitlines()
+        if line.strip() == "continue"
+        and len(line) - len(line.lstrip()) <= 12
+    ]
+    assert not day_level, (
+        f"continue at day-loop level can skip the history update: {day_level}"
+    )
+    assert 'if "y" in block:' in body
+
+
+def test_nhits_uses_utc_internally():
+    """
+    neuralforecast needs a strictly consecutive hourly axis, and local time
+    is not one: an hour vanishes each spring and repeats each autumn.
+    """
+    import inspect
+
+    from dayahead.models.nhits import NHiTSForecaster
+
+    src = inspect.getsource(NHiTSForecaster._frame)
+    assert 'tz_convert("UTC")' in src
+
+
+def test_nhits_has_a_divergence_guard():
+    """arima.py has had one since section 7; nhits.py did not, and paid."""
+    from dayahead.models.nhits import DIVERGENCE_LIMIT
+
+    assert DIVERGENCE_LIMIT >= 1000

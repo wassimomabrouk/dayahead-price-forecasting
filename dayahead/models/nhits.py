@@ -53,6 +53,17 @@ HORIZON = 24              # one delivery day
 MAX_STEPS = 300
 BATCH_SIZE = 32
 
+# Any prediction beyond this is a numerical failure, not a forecast. The
+# observed price range across the whole sample is -500 to 936 EUR/MWh.
+#
+# arima.py has carried this guard since section 7, where SARIMA diverged to
+# an MAE of 1.4e10 on a single fold. It was not added here, and section 12
+# paid for the omission: 18 hours across 2026-02-27 and 28 produced
+# predictions as extreme as -5,276 EUR/MWh against an outturn near zero,
+# inflating the locked test MAE by 22% and the RMSE threefold. The guard is
+# added now and is not retroactive; section 24 reports what was measured.
+DIVERGENCE_LIMIT = 10_000
+
 # Future-known covariates. These are the published day-ahead forecasts, so
 # they are available for the delivery day at issuance. One side of the
 # residual identity only, as in the classical models.
@@ -104,13 +115,23 @@ class NHiTSForecaster(Forecaster):
         self._nf = None
         self._train_df: pd.DataFrame | None = None
         self._qcols: dict[float, str] = {}
+        self._skipped_days = 0
 
     # ------------------------------------------------------------ internals
     def _frame(self, X: pd.DataFrame, y: pd.Series | None) -> pd.DataFrame:
+        """
+        Model frame with ds in UTC.
+
+        UTC rather than local time, because neuralforecast requires a
+        strictly consecutive hourly ds and local time is not: an hour is
+        skipped every spring and repeated every autumn. The delivery-day
+        grouping stays local, since that is what the gate closure rule is
+        defined on; only the internal time axis is UTC.
+        """
         cols = [c for c in self.futr_exog if c in X.columns]
         df = pd.DataFrame({
             "unique_id": "DE_LU",
-            "ds": X.index.tz_localize(None),
+            "ds": X.index.tz_convert("UTC").tz_localize(None),
         })
         for c in cols:
             df[c] = X[c].to_numpy(dtype=float)
@@ -167,37 +188,60 @@ class NHiTSForecaster(Forecaster):
         out = {q: pd.Series(np.nan, index=X.index, dtype=float) for q in qs}
 
         future = self._frame(X, y)
-        future["_date"] = future["ds"].dt.normalize()
+        # Group by local delivery date, which is what gate closure is defined
+        # on, while the ds axis itself stays in UTC.
+        future["_date"] = X.index.tz_convert(cfg.LOCAL_TZ).normalize().tz_localize(None)
         history = self._train_df.copy()
+        self._skipped_days = 0
 
-        for day, block in future.groupby("_date", sort=True):
+        for _, block in future.groupby("_date", sort=True):
             block = block.drop(columns="_date")
             futr = block.drop(columns=[c for c in ("y",) if c in block])
-            if len(futr) != HORIZON:
-                # Short days at DST transitions cannot fill the fixed horizon.
-                continue
-            try:
-                pred = self._nf.predict(df=history, futr_df=futr, verbose=False)
-            except Exception:
-                continue
 
-            if not self._qcols:
-                self._qcols = _quantile_columns(list(pred.columns))
-            stamps = pd.DatetimeIndex(pred["ds"]).tz_localize(cfg.LOCAL_TZ,
-                                                              nonexistent="shift_forward",
-                                                              ambiguous="NaT")
-            keep = stamps.notna() & stamps.isin(X.index)
-            for q in qs:
-                col = self._qcols.get(q)
-                if col is None:
-                    continue
-                out[q].loc[stamps[keep]] = pred[col].to_numpy(float)[keep]
+            # A local delivery day spans 23, 24 or 25 hours across a DST
+            # transition, and the horizon is fixed at 24. Predict for the
+            # rows that fit and map back by timestamp; at most one hour a
+            # year goes uncovered.
+            #
+            # The earlier version skipped such a day entirely with a bare
+            # continue, which also skipped the history update below. The
+            # conditioning window then stopped advancing and every remaining
+            # day of that fold produced nothing. Two DST days cost 837 hours
+            # of the locked test year, 9.6%, before this was found.
+            usable = futr.iloc[:HORIZON]
+            if len(usable) == HORIZON:
+                try:
+                    pred = self._nf.predict(df=history, futr_df=usable,
+                                            verbose=False)
+                except Exception:
+                    pred = None
 
-            # Advance the conditioning window with what is now known.
+                if pred is not None:
+                    if not self._qcols:
+                        self._qcols = _quantile_columns(list(pred.columns))
+                    stamps = (pd.DatetimeIndex(pred["ds"])
+                              .tz_localize("UTC").tz_convert(cfg.LOCAL_TZ))
+                    keep = stamps.isin(X.index)
+                    for q in qs:
+                        col = self._qcols.get(q)
+                        if col is None:
+                            continue
+                        out[q].loc[stamps[keep]] = pred[col].to_numpy(float)[keep]
+            else:
+                self._skipped_days += 1
+
+            # Always advance the conditioning window, whether or not this day
+            # could be predicted. This is the line whose absence caused the
+            # cascade described above.
             if "y" in block:
                 history = pd.concat([history, block], ignore_index=True)
 
-        return {q: v.to_numpy(dtype=float) for q, v in out.items()}
+        result = {}
+        for q, v in out.items():
+            arr = v.to_numpy(dtype=float)
+            arr[np.abs(arr) > DIVERGENCE_LIMIT] = np.nan
+            result[q] = arr
+        return result
 
     def predict(self, X: pd.DataFrame, y: pd.Series | None = None) -> np.ndarray:
         return self.predict_quantiles(X, [0.5], y=y)[0.5]
@@ -209,6 +253,7 @@ class NHiTSForecaster(Forecaster):
             "max_steps": self.max_steps,
             "futr_exog": self.futr_exog,
             "train_rows": None if self._train_df is None else len(self._train_df),
+            "skipped_days": self._skipped_days,
         }
 
 
