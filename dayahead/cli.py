@@ -11,6 +11,7 @@ Command line interface.
     py -m dayahead.cli select
     py -m dayahead.cli locked-test   (opens the held-out year, once)
     py -m dayahead.cli value
+    py -m dayahead.cli forecast [--calibrate]
 
 Run from the repository root. No installation step required.
 """
@@ -599,6 +600,70 @@ def cmd_value(args) -> int:
     return 0
 
 
+def cmd_forecast(args) -> int:
+    """Section 14. Produce tomorrow's forecast and score the track record."""
+    import json
+
+    import pandas as pd
+
+    from .data.validate import load_panel
+    from .forecast.daily import (
+        CALIBRATION_PATH, LOG_PATH, append_forecast, build_calibration,
+        load_log, produce_forecast, score_log, track_record_summary,
+    )
+
+    print("=" * 78)
+    print("SECTION 14: DAILY FORECAST")
+    print("=" * 78)
+
+    if args.calibrate:
+        store = cfg.PROCESSED / "backtest_predictions.parquet"
+        extra = cfg.PROCESSED / "locked_test_predictions.parquet"
+        frames = [pd.read_parquet(store)] if store.exists() else []
+        if extra.exists():
+            frames.append(pd.read_parquet(extra))
+        if not frames:
+            print("  no stored predictions to calibrate from")
+            return 1
+        cal = build_calibration(pd.concat(frames, ignore_index=True), "N-HiTS")
+        with CALIBRATION_PATH.open("w", encoding="utf-8") as f:
+            json.dump(cal, f, indent=2)
+        print(f"\n  calibration fitted on {cal['n_rows']:,} rows, "
+              f"written to {CALIBRATION_PATH}")
+        return 0
+
+    print()
+    new = produce_forecast(verbose=True)
+
+    panel_full = load_panel(full=True)
+    log = append_forecast(new) if new is not None else load_log()
+    log = score_log(log, panel_full)
+
+    cfg.REPORTS.mkdir(parents=True, exist_ok=True)
+    log.to_csv(LOG_PATH, index=False)
+
+    summary = track_record_summary(log)
+    print("\n  track record")
+    if summary.get("scored_hours"):
+        print(f"    forecast hours: {summary['forecast_hours']:,}")
+        print(f"    scored:         {summary['scored_hours']:,}")
+        print(f"    pending:        {summary['pending_hours']:,}")
+        print(f"    MAE:            {summary['mae']:.2f} EUR/MWh")
+        print(f"    coverage:       {summary['coverage']:.3f} "
+              "against nominal 0.80")
+        print(f"    span:           {summary['first_delivery'][:10]} to "
+              f"{summary['last_delivery'][:10]}")
+    else:
+        print("    nothing scored yet; outturn arrives a day after issuance")
+
+    with (cfg.REPORTS / "track_record.json").open("w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
+    print(f"\n  written: {LOG_PATH}")
+    print("=" * 78)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="dayahead")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -647,6 +712,11 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("value", help="section 13: battery arbitrage valuation")
     p.set_defaults(func=cmd_value)
+
+    p = sub.add_parser("forecast", help="section 14: tomorrow's forecast")
+    p.add_argument("--calibrate", action="store_true",
+                   help="refit the conformal corrections and exit")
+    p.set_defaults(func=cmd_forecast)
 
     args = parser.parse_args(argv)
     return args.func(args)

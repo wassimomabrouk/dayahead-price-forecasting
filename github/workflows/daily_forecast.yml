@@ -1,0 +1,66 @@
+name: daily forecast
+
+# Runs after SMARD publishes the day-ahead forecasts for tomorrow. 09:00 UTC
+# is 10:00 or 11:00 Berlin depending on the season, comfortably before the
+# noon auction and after the regulatory publication deadline for the
+# day-ahead load forecast.
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    # A single fit of the champion plus the data pull. The generous limit is
+    # so a slow SMARD response does not abandon a run that would have worked.
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[models,dev]" neuralforecast
+
+      - name: Ingest
+        run: python -m dayahead.cli ingest
+
+      - name: Validate
+        run: python -m dayahead.cli validate
+
+      - name: Forecast
+        run: python -W ignore -m dayahead.cli forecast
+
+      - name: Publish page
+        run: python -m dayahead.cli page
+
+      - name: Commit the track record
+        # The forecast log and the page are the only things this job writes.
+        # The raw store stays out of git; it is reproducible from ingest.
+        run: |
+          git config user.name "daily-forecast"
+          git config user.email "actions@github.com"
+          git add reports/forecast_log.csv reports/track_record.json docs/
+          if git diff --staged --quiet; then
+            echo "nothing new to commit"
+          else
+            git commit -m "Daily forecast $(date -u +%Y-%m-%d)"
+            git push
+          fi
+
+      - name: Report failure without breaking the record
+        if: failure()
+        # A failed run leaves the previous forecast and page in place rather
+        # than replacing them with an error state. The gap is visible in the
+        # log, which is the honest outcome.
+        run: echo "Run failed. Previous forecast and page remain published."

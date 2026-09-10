@@ -1,0 +1,247 @@
+"""
+The daily forecast run.
+
+Produces tomorrow's 24 hourly prices with calibrated intervals, appends them
+to a track record, and scores earlier forecasts once their outturn is
+published.
+
+Why the untrimmed panel
+-----------------------
+
+`validate` trims the panel to the point where every series ends, which is
+correct for evaluation and wrong here. Forecasting tomorrow depends on
+exactly the asymmetry the trim removes: SMARD publishes tomorrow's load,
+wind and solar forecasts, and does not publish tomorrow's price, because the
+auction that sets it has not cleared. So this module reads panel_full and
+selects the delivery day where the exogenous inputs are complete and the
+target is absent.
+
+That asymmetry is the whole forecasting problem, and it only becomes visible
+when the system runs forward rather than over history.
+
+The track record
+----------------
+
+Every run appends its forecast to reports/forecast_log.csv before the outturn
+exists, and fills in the realised price on a later run. The file is committed,
+so the history of what was predicted, and when, is not something the author
+can revise afterwards. That is the point of keeping it.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+
+import numpy as np
+import pandas as pd
+
+from .. import config as cfg
+from ..evaluation.splits import QUANTILES
+
+LOG_PATH = cfg.REPORTS / "forecast_log.csv"
+CALIBRATION_PATH = cfg.REPORTS / "calibration.json"
+
+LOG_COLUMNS = [
+    "issued_utc", "delivery_hour_local", "delivery_date_local", "hour",
+    "model", "y_pred", *[f"q{int(q * 100):02d}" for q in QUANTILES],
+    "y_true", "abs_error",
+]
+
+
+def _qcol(q: float) -> str:
+    return f"q{int(q * 100):02d}"
+
+
+# --------------------------------------------------------------- calibration
+def build_calibration(preds: pd.DataFrame, model: str,
+                      window_days: int = 365) -> dict:
+    """
+    Conformal corrections from the model's own recent out-of-sample errors.
+
+    Same construction as section 10: for level q the correction is the q-th
+    quantile of y - qhat_q. Fitted on the most recent window of stored
+    predictions, all of which precede any forecast this file will produce.
+    """
+    g = preds[preds["model"] == model].copy()
+    g["timestamp"] = pd.to_datetime(g["timestamp"], utc=True)
+    cutoff = g["timestamp"].max() - pd.Timedelta(days=window_days)
+    g = g[g["timestamp"] >= cutoff]
+
+    deltas = {}
+    y = g["y_true"].to_numpy(dtype=float)
+    for q in QUANTILES:
+        c = _qcol(q)
+        if c not in g:
+            deltas[str(q)] = 0.0
+            continue
+        r = y - g[c].to_numpy(dtype=float)
+        r = r[np.isfinite(r)]
+        deltas[str(q)] = float(np.quantile(r, q)) if len(r) else 0.0
+
+    return {
+        "model": model,
+        "fitted_utc": datetime.now(timezone.utc).isoformat(),
+        "window_days": window_days,
+        "n_rows": int(len(g)),
+        "deltas": deltas,
+    }
+
+
+def load_calibration() -> dict | None:
+    if not CALIBRATION_PATH.exists():
+        return None
+    with CALIBRATION_PATH.open(encoding="utf-8") as f:
+        return json.load(f)
+
+
+# ------------------------------------------------------------- the next day
+def next_delivery_day(panel_full: pd.DataFrame) -> pd.Timestamp | None:
+    """
+    The earliest local delivery date with complete exogenous inputs and no
+    published price.
+
+    Returns None when there is nothing new to forecast, which is the normal
+    state for most of the day and is not an error.
+    """
+    local = panel_full.tz_convert(cfg.LOCAL_TZ)
+    exog_ok = local[cfg.EXOG].notna().all(axis=1)
+    price_missing = local[cfg.TARGET].isna()
+
+    by_day = pd.DataFrame({
+        "exog": exog_ok.groupby(local.index.normalize()).all(),
+        "no_price": price_missing.groupby(local.index.normalize()).all(),
+        "hours": exog_ok.groupby(local.index.normalize()).size(),
+    })
+    candidates = by_day[by_day["exog"] & by_day["no_price"]
+                        & (by_day["hours"] >= 23)]
+    return candidates.index.min() if len(candidates) else None
+
+
+def produce_forecast(model_name: str = "N-HiTS",
+                     verbose: bool = True) -> pd.DataFrame | None:
+    """Fit on all published history, forecast the next delivery day."""
+    from ..data.validate import load_panel
+    from ..features.build import build_features
+    from ..models.nhits import nhits
+
+    panel_full = load_panel(full=True)
+    target_day = next_delivery_day(panel_full)
+    if target_day is None:
+        if verbose:
+            print("  no delivery day with complete inputs and no price yet")
+        return None
+
+    day_end = target_day + pd.Timedelta(hours=23)
+    if verbose:
+        print(f"  delivery day: {target_day:%Y-%m-%d}")
+
+    # Features are built on the untrimmed panel, cut at the end of the target
+    # day so nothing later can enter.
+    usable = panel_full.tz_convert(cfg.LOCAL_TZ).loc[:day_end]
+    X, _ = build_features(panel=usable.tz_convert("UTC"))
+
+    train = X[X["y"].notna() & X["is_usable"]]
+    future = X.loc[target_day:day_end]
+    if future.empty:
+        if verbose:
+            print("  target day produced no feature rows")
+        return None
+
+    cols = [c for c in X.columns if c not in ("y", "is_usable")]
+    if verbose:
+        print(f"  training rows: {len(train):,}   forecast hours: {len(future)}")
+
+    model = nhits()
+    model.fit(train[cols], train["y"])
+    quantiles = model.predict_quantiles(future[cols])
+
+    out = pd.DataFrame({
+        "issued_utc": datetime.now(timezone.utc).isoformat(),
+        "delivery_hour_local": future.index,
+        "delivery_date_local": future.index.normalize(),
+        "hour": future.index.hour,
+        "model": model_name,
+    })
+    for q in QUANTILES:
+        out[_qcol(q)] = quantiles[q]
+    out["y_pred"] = out[_qcol(0.5)]
+
+    cal = load_calibration()
+    if cal and cal.get("model") == model_name:
+        for q in QUANTILES:
+            out[_qcol(q)] = out[_qcol(q)] + cal["deltas"].get(str(q), 0.0)
+        out["y_pred"] = out[_qcol(0.5)]
+        if verbose:
+            print(f"  calibration applied, fitted {cal['fitted_utc'][:10]} "
+                  f"on {cal['n_rows']:,} rows")
+    elif verbose:
+        print("  WARNING: no calibration file, intervals are uncalibrated")
+
+    # Independent per-quantile shifts can reorder the quantiles.
+    qcols = [_qcol(q) for q in QUANTILES]
+    block = out[qcols].to_numpy(dtype=float)
+    block.sort(axis=1)
+    out[qcols] = block
+
+    out["y_true"] = np.nan
+    out["abs_error"] = np.nan
+    return out[LOG_COLUMNS]
+
+
+# ------------------------------------------------------------ track record
+def load_log() -> pd.DataFrame:
+    if not LOG_PATH.exists():
+        return pd.DataFrame(columns=LOG_COLUMNS)
+    return pd.read_csv(LOG_PATH)
+
+
+def append_forecast(new: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add a forecast, refusing to overwrite one already made for those hours.
+
+    A rerun that silently replaced an earlier forecast would let a bad day be
+    quietly reissued, which is exactly what a track record exists to prevent.
+    """
+    log = load_log()
+    if len(log):
+        already = set(log["delivery_hour_local"].astype(str))
+        new = new[~new["delivery_hour_local"].astype(str).isin(already)]
+    if new.empty:
+        return log
+    return pd.concat([log, new], ignore_index=True)
+
+
+def score_log(log: pd.DataFrame, panel_full: pd.DataFrame) -> pd.DataFrame:
+    """Fill in realised prices for forecasts whose outturn has since cleared."""
+    if log.empty:
+        return log
+    local = panel_full.tz_convert(cfg.LOCAL_TZ)
+    truth = local[cfg.TARGET].astype("float64")
+    truth.index = truth.index.astype(str)
+
+    log = log.copy()
+    missing = log["y_true"].isna()
+    filled = log.loc[missing, "delivery_hour_local"].astype(str).map(truth)
+    log.loc[missing, "y_true"] = filled.to_numpy()
+    log["abs_error"] = (log["y_true"] - log["y_pred"]).abs()
+    return log
+
+
+def track_record_summary(log: pd.DataFrame) -> dict:
+    scored = log[log["y_true"].notna()]
+    if scored.empty:
+        return {"scored_hours": 0}
+
+    lo, hi = _qcol(0.1), _qcol(0.9)
+    covered = ((scored["y_true"] >= scored[lo])
+               & (scored["y_true"] <= scored[hi])).mean()
+    return {
+        "forecast_hours": int(len(log)),
+        "scored_hours": int(len(scored)),
+        "pending_hours": int(log["y_true"].isna().sum()),
+        "mae": float(scored["abs_error"].mean()),
+        "coverage": float(covered),
+        "first_delivery": str(log["delivery_hour_local"].min()),
+        "last_delivery": str(log["delivery_hour_local"].max()),
+    }

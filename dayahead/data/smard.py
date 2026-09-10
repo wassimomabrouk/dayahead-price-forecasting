@@ -25,6 +25,21 @@ BACKOFF = 2.0
 POLITE_DELAY = 0.15
 USER_AGENT = "dayahead-ingest/0.1"
 
+# Blocks at the end of the index are always refetched, never served from
+# cache.
+#
+# SMARD publishes weekly blocks and keeps filling the current one as the week
+# progresses, so a block downloaded on Monday holds Monday's data and stays
+# that way on disk. The original cache rule skipped anything already stored,
+# which made ingestion a no-op from the second run of any given week onward:
+# the store looked complete, the summary reported every block present, and no
+# new hour ever arrived. It was invisible until the daily forecast job asked
+# for tomorrow and found nothing.
+#
+# Two blocks rather than one, because a run near a week boundary can find the
+# previous block still incomplete.
+ALWAYS_REFETCH_BLOCKS = 2
+
 
 def get_json(url: str, timeout: int = TIMEOUT, retries: int = RETRIES) -> dict:
     """GET and parse JSON, retrying with exponential backoff."""
@@ -71,11 +86,14 @@ def ingest_series(short: str, dry_run: bool = False, verbose: bool = True) -> di
     start_ms = int(cfg.WINDOW_START.timestamp() * 1000)
     wanted = [t for t in fetch_index(filter_id) if t >= start_ms]
     have = cached_blocks(short)
-    todo = [t for t in wanted if t not in have]
+    stale = set(wanted[-ALWAYS_REFETCH_BLOCKS:])
+    todo = [t for t in wanted if t not in have or t in stale]
 
     if verbose:
+        fresh = len(have & set(wanted) - stale)
         print(f"  {short:<16} in window: {len(wanted):>4}   "
-              f"cached: {len(have & set(wanted)):>4}   to fetch: {len(todo):>4}")
+              f"cached: {fresh:>4}   to fetch: {len(todo):>4}   "
+              f"(of which refreshed: {len(stale & have)})")
 
     if dry_run:
         return {"filter_id": filter_id, "role": meta["role"],
