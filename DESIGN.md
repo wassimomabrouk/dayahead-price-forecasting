@@ -1131,3 +1131,110 @@ calibrated 80% intervals achieving 82.1% coverage.
 It fails on negative prices, it diverged for eighteen hours, and a DST bug
 cost it 9.6% of the evaluation year. All three are reported because the
 alternative is a number that reads better and means less.
+
+---
+
+## 25. Section 13 pre-commitment: battery valuation
+
+Written and committed before any valuation is computed, as section 15
+requires. Nothing below is chosen with knowledge of the result.
+
+### Why this section exists
+
+MAE 23.45 does not tell anyone whether this forecaster is worth having. The
+question a storage operator asks is what better forecasts are worth in euros,
+and that depends on decisions, not on error metrics.
+
+### Battery specification, fixed now
+
+| parameter | value |
+|---|---|
+| Power rating | 1 MW |
+| Energy capacity | 2 MWh, two hour duration |
+| Round-trip efficiency | 85% |
+| Cycles per day | 1 |
+| Starting state each day | empty |
+| Degradation cost | not modelled |
+| Grid fees, taxes, levies | not modelled |
+| Imbalance risk | not modelled |
+| Market impact | none, price taker |
+
+These are conventional figures for a grid-scale lithium-ion system. They are
+fixed here so they cannot later be chosen to produce a more attractive
+number.
+
+### Dispatch rule
+
+Each delivery day the operator holds 24 forecast prices at gate closure and
+must commit a schedule for the following day.
+
+Charge for two hours at full power, buying 2 MWh. Discharge for two hours,
+delivering 1.7 MWh after the 85% round-trip loss. All charging hours must
+precede all discharging hours, since the battery starts empty. The schedule
+maximising forecast profit is chosen by evaluating every admissible split of
+the day, which is 24 candidate schedules.
+
+Settlement is at realised prices, never at forecast prices. Revenue is
+0.85 times the sum of the discharge prices minus the sum of the charge
+prices.
+
+### Information sets compared
+
+1. **B2 daily naive.** The stronger of the two baselines.
+2. **N-HiTS champion.** As evaluated in section 12, with its known defects.
+3. **Perfect foresight.** The realised prices themselves, giving the
+   theoretical maximum. Not attainable, and reported as the denominator.
+
+The headline is the share of perfect-foresight value each information set
+captures over the locked test year.
+
+### A second rule, to test whether the intervals earn their place
+
+Section 10 exists because point forecasts alone are insufficient. That claim
+should be tested against a decision, not only against pinball loss.
+
+**Rule A** dispatches on the median forecast every day.
+
+**Rule B** dispatches on the median forecast but abstains on days where the
+forecast is least confident, defined as the top quintile of mean interval
+width across the test year. On those days the battery does not trade.
+
+If the intervals carry information, Rule B should capture a higher share of
+per-trading-day value than Rule A, because the days it skips are the ones
+where the forecast is least reliable. If Rule B is no better, the intervals
+are well calibrated but not decision-relevant, which is a finding worth
+having.
+
+### Pre-committed expectation 25.1
+
+The champion will capture a smaller share of perfect-foresight value than its
+MAE advantage over the baselines suggests.
+
+The reasoning: section 24 established that the champion's errors concentrate
+in the midday hours, 12h to 14h, with MAE from 36.7 to 43.2 against 8.2 at
+00h, and that it is beaten by both baselines on negative-price hours with a
+skill of -0.258. Those are precisely the hours a battery charges in. A
+forecaster that is accurate at night and poor at midday is accurate where the
+decision does not depend on it and poor where it does.
+
+Recorded before computation so that a confirmation is informative rather than
+a description.
+
+### Pre-committed expectation 25.2
+
+Rule B will not beat Rule A by a large margin. Interval width in this system
+is driven mainly by the level of residual load rather than by anything
+specific to the arbitrage decision, so abstaining on wide-interval days will
+skip volatile days, and volatile days are where arbitrage value is highest.
+The two effects work against each other.
+
+### What is not claimed
+
+This measures the relative value of forecast information under one simple
+dispatch rule. It is not a profit and loss statement. A real operator faces
+degradation, grid fees, imbalance exposure and an intraday market that would
+all change the numbers, and the rule used here would not be their rule.
+
+The comparison across information sets is meaningful because every element
+except the forecast is held constant. The absolute euro figures are
+illustrative.
