@@ -1238,3 +1238,108 @@ all change the numbers, and the rule used here would not be their rule.
 The comparison across information sets is meaningful because every element
 except the forecast is held constant. The absolute euro figures are
 illustrative.
+
+---
+
+## 26. Section 13 result: the forecast advantage is worth nothing here
+
+Battery arbitrage over the locked test year, under the specification fixed in
+section 25 before any figure was computed. Settled at realised prices.
+
+### The headline as first computed, and why it is wrong
+
+| strategy | days traded | revenue EUR | share of perfect |
+|---|---|---|---|
+| perfect foresight | 365 | 74,826 | 100.0% |
+| B2 daily naive | 365 | 66,521 | 88.9% |
+| N-HiTS champion | 330 | 58,375 | 78.0% |
+
+Read directly this says the champion is worth -8,146 EUR per MW per year
+against the naive baseline. That reading is an artifact. The champion traded
+on 330 days, not 365, because the DST cascade recorded in section 24 left it
+with no forecast for 35 days. Those days settle at zero revenue for the
+champion while the baseline earns on them.
+
+### Restricted to the 330 days both models traded
+
+| | revenue EUR | share of perfect |
+|---|---|---|
+| perfect foresight | 65,587 | 100.0% |
+| B2 daily naive | 58,391 | 89.0% |
+| N-HiTS champion | 58,375 | 89.0% |
+
+A difference of 16 EUR across a year. The two are indistinguishable.
+
+### Expectation 25.1: CONFIRMED, and more completely than predicted
+
+The prediction was that the champion would capture a smaller share of
+perfect-foresight value than its MAE advantage suggested. It does not capture
+a smaller share. It captures the same share. A 17.7% improvement in MAE
+converts to no measurable euros under this dispatch rule.
+
+The reasoning behind the expectation pointed at the right mechanism and
+understated it. Section 24 established that the champion's errors concentrate
+in the midday hours and that it loses to both baselines on negative prices,
+which are the hours a battery charges in. The fuller explanation is that
+arbitrage depends only on **ranking** hours within a day, cheapest against
+dearest. It does not use the level at all.
+
+A forecaster can be substantially more accurate in absolute terms while
+identifying the same two troughs and the same two peaks as a naive baseline.
+MAE measures a quantity this decision never consumes.
+
+That the daily spread is large makes the result meaningful rather than
+degenerate: median 129.4 EUR/MWh across the test year, mean 135.7, and only
+one day of 365 below 20. The ceiling is high, and both information sets reach
+most of it.
+
+### Expectation 25.2: REFUTED
+
+The prediction was that abstaining on wide-interval days would neither help
+nor hurt much, because skipping uncertain days and skipping volatile days
+would roughly cancel.
+
+Abstaining is actively harmful. Rule B earns 146.64 EUR per traded day
+against 176.89 for rule A, 17.1% worse. The cancellation does not occur
+because the two effects are not independent: interval width and arbitrage
+value are both driven by volatility, so the days the model flags as uncertain
+are disproportionately the days worth trading.
+
+The intervals are well calibrated, as section 22 established, and for this
+particular decision that calibration is counterproductive. Calibration and
+decision-relevance are separate properties, and section 10 tested only the
+first.
+
+### One respect in which the champion is better
+
+It loses money on 5 days against 11 for the baseline. It captures the same
+total value with fewer bad days, which is a genuine difference in risk
+profile even though it does not appear in the revenue total. An operator with
+a low tolerance for individual bad days might prefer it on that basis alone,
+which is a decision this valuation was not designed to evaluate.
+
+### What this section establishes
+
+Better forecasts are not automatically more valuable. Which error metric
+matters is determined by the decision, not by convention, and for
+within-day arbitrage the relevant quantity is the accuracy of the intraday
+ranking rather than of the level.
+
+This is an uncomfortable result for a forecasting project and it is the most
+useful thing in it. A model selected on pinball loss, calibrated carefully,
+beating its baselines by 32% on MAE and 18% on pinball, delivers no
+additional euros under the one decision rule the project actually valued.
+
+Two qualifications, both real. The dispatch rule is simple and a different
+rule might separate them, particularly one trading more than one cycle a day
+or responding to the intervals rather than abstaining on them. And the 35
+missing days are an implementation defect, not a property of the model: a
+corrected implementation would trade all 365 days and, at the same 89% rate,
+capture close to the same total as the baseline rather than less.
+
+### What is not concluded
+
+That the forecaster is worthless. It is more accurate, better calibrated and
+less prone to bad days. What is concluded is narrower and better supported:
+under this dispatch rule, on this battery, over this year, the additional
+accuracy did not convert into additional revenue.

@@ -10,6 +10,7 @@ Command line interface.
     py -m dayahead.cli conformal
     py -m dayahead.cli select
     py -m dayahead.cli locked-test   (opens the held-out year, once)
+    py -m dayahead.cli value
 
 Run from the repository root. No installation step required.
 """
@@ -521,6 +522,83 @@ def cmd_locked_test(args) -> int:
     return 0
 
 
+def cmd_value(args) -> int:
+    """Section 13. Battery arbitrage valuation, spec fixed in section 25."""
+    import pandas as pd
+
+    from .value.battery import (
+        CAPACITY_MWH, POWER_MW, ROUND_TRIP_EFFICIENCY, valuation,
+    )
+
+    store = cfg.PROCESSED / "locked_test_predictions.parquet"
+    if not store.exists():
+        print("  no locked test predictions. Run: py -m dayahead.cli locked-test")
+        return 1
+    preds = pd.read_parquet(store)
+
+    print("=" * 78)
+    print("SECTION 13: BATTERY ARBITRAGE VALUATION")
+    print("=" * 78)
+    print(f"\n  battery:  {POWER_MW:.0f} MW / {CAPACITY_MWH:.0f} MWh, "
+          f"{ROUND_TRIP_EFFICIENCY:.0%} round trip, one cycle per day")
+    print("  settled:  at realised prices, over the locked test year")
+    print("  spec:     fixed in DESIGN.md section 25 before computation")
+
+    result = valuation(preds)
+    s = result["summary"]
+
+    print(f"\n  perfect foresight ceiling: "
+          f"{result['oracle_total']:,.0f} EUR per MW per year")
+
+    print("\n  strategies")
+    cols = ["strategy", "days", "days_traded", "revenue_eur",
+            "revenue_per_traded_day", "share_of_perfect", "loss_making_days"]
+    show = s[cols].copy()
+    show["revenue_eur"] = show["revenue_eur"].round(0)
+    show["revenue_per_traded_day"] = show["revenue_per_traded_day"].round(2)
+    show["share_of_perfect"] = (100 * show["share_of_perfect"]).round(1)
+    show = show.rename(columns={"share_of_perfect": "share_%"})
+    print(show.to_string(index=False))
+
+    def get(name, col):
+        row = s[s["strategy"] == name]
+        return float(row[col].iloc[0]) if len(row) else float("nan")
+
+    champ = get("champion_rule_A", "share_of_perfect")
+    base = get("baseline_rule_A", "share_of_perfect")
+    print(f"\n  headline: the champion captures {100 * champ:.1f}% of "
+          f"perfect-foresight value")
+    print(f"            against {100 * base:.1f}% for the daily naive baseline")
+    uplift = get("champion_rule_A", "revenue_eur") - get("baseline_rule_A",
+                                                         "revenue_eur")
+    print(f"            worth {uplift:,.0f} EUR per MW per year")
+
+    # Expectation 25.1: value share should lag the MAE advantage.
+    mae_champ, mae_base = 23.45, 28.50
+    mae_edge = 1 - mae_champ / mae_base
+    value_edge = (champ - base) / base if base else float("nan")
+    print(f"\n  expectation 25.1: value share lags the MAE advantage")
+    print(f"    MAE advantage over B2   {100 * mae_edge:.1f}%")
+    print(f"    value advantage over B2 {100 * value_edge:.1f}%")
+    print(f"    {'CONFIRMED' if value_edge < mae_edge else 'REFUTED'}")
+
+    if "champion_rule_B" in set(s["strategy"]):
+        a = get("champion_rule_A", "revenue_per_traded_day")
+        b = get("champion_rule_B", "revenue_per_traded_day")
+        print(f"\n  expectation 25.2: abstaining on wide intervals adds little")
+        print(f"    rule A {a:.2f} EUR per traded day, "
+              f"rule B {b:.2f}, change {100 * (b / a - 1):+.1f}%")
+        print(f"    {'CONFIRMED' if abs(b / a - 1) < 0.10 else 'REFUTED'}")
+
+    cfg.REPORTS.mkdir(parents=True, exist_ok=True)
+    s.to_csv(cfg.REPORTS / "battery_valuation.csv", index=False)
+    for name, frame in result["daily"].items():
+        frame.to_csv(cfg.REPORTS / f"battery_daily_{name}.csv", index=False)
+    print(f"\n  written: reports/battery_valuation.csv, battery_daily_*.csv")
+    print("=" * 78)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="dayahead")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -566,6 +644,9 @@ def main(argv=None) -> int:
                    help="reproduce an evaluation already recorded; never "
                         "for reselection")
     p.set_defaults(func=cmd_locked_test)
+
+    p = sub.add_parser("value", help="section 13: battery arbitrage valuation")
+    p.set_defaults(func=cmd_value)
 
     args = parser.parse_args(argv)
     return args.func(args)
