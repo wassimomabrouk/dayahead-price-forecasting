@@ -972,3 +972,162 @@ both rankings and the flag locked_test_opened: false. The calibration
 procedure is fixed. The locked test set has not been read.
 
 Section 12 opens it once.
+
+---
+
+## 24. Section 12: the locked test result
+
+Opened once, on 10 September 2026. Champion, calibration method, metrics and
+split protocol were all fixed beforehand and are recorded in sections 6, 7,
+11 and 22. 8,757 delivery hours, 2025-09 to 2026-08, twelve monthly folds
+under the same expanding-window protocol as the backtest.
+
+### Headline
+
+| model | MAE | RMSE | bias | skill vs B1 | pinball | coverage | width |
+|---|---|---|---|---|---|---|---|
+| **N-HiTS, champion** | **23.45** | 129.97 | -6.52 | **0.320** | 9.29 | 0.821 | 80.65 |
+| B2 daily naive | 28.50 | 45.18 | -0.15 | 0.201 | 12.07 | 0.789 | 86.67 |
+| B1 weekly naive | 35.68 | 54.91 | -0.58 | 0.000 | 14.98 | 0.780 | 112.68 |
+| N-HiTS with realised inputs | 18.75 | 36.80 | -1.42 | 0.457 | 7.61 | 0.808 | 55.10 |
+| N-HiTS, post-2023 training | 22.39 | 108.49 | -4.02 | 0.351 | 9.60 | 0.805 | 91.75 |
+
+The champion beats both baselines. Calibrated coverage is 0.821 against a
+nominal 0.80, the closest of any model at any point in the project.
+
+The row for realised inputs is the leak measurement, not a forecast. It is
+never reported as one.
+
+### Expectation 12.1: CONFIRMED
+
+Predicted, before the test set was opened, that locked test MAE would exceed
+the backtest average because the test window contains the highest
+negative-price frequency in the sample. Backtest 18.88, locked test 23.45.
+
+The direction was right. The size, a 24% deterioration, is larger than the
+reasoning implied.
+
+### Expectation 12.8: REFUTED
+
+Predicted that SARIMAX might achieve better interval coverage than LightGBM
+despite worse MAE, because its intervals derive from an explicit error model
+rather than from independently fitted quantiles.
+
+The mechanism did not hold. Uncalibrated, SARIMAX covered 0.573 against 0.642
+for anchored LightGBM. After calibration SARIMAX required intervals 2.7 times
+wider and still reached only 0.733. An explicit error model confers no
+advantage when the error variance is not constant, which section 3b had
+already established it is not.
+
+### Two failures the locked test found that 59 backtest folds did not
+
+**Eighteen diverged hours.** On 27 and 28 February 2026 the champion emitted
+predictions as extreme as -5,276 EUR/MWh against an outturn near zero. The
+observed price range across the entire sample is -500 to 936. The inputs for
+those days were unremarkable: residual load 1,965 to 46,897 MW, solar 0 to
+39,189, outturn -0.8 to 118.1. This is a numerical failure inside the model,
+not a response to unusual data.
+
+Eighteen hours out of 8,757, 0.21% of the year, inflate MAE by 22% and RMSE
+threefold. Excluding them gives MAE 18.33 and RMSE 42.99 against the reported
+23.45 and 129.97.
+
+arima.py has carried a divergence guard since section 7, added after SARIMA
+diverged to an MAE of 1.4e10 on one fold. The same guard was not added to
+nhits.py. It has been added now, and it is not retroactive.
+
+**A DST cascade costing 837 hours.** The champion produced no forecast for
+9.6% of the test year. The cause was a single line: a local delivery day
+spans 23 or 25 hours across a DST transition while the N-HiTS horizon is
+fixed at 24, and such a day was skipped with a bare `continue`. That also
+skipped the statement extending the conditioning history, so the window
+stopped advancing and every subsequent day in the fold produced nothing. Two
+transitions, on 2025-10-26 and 2026-03-29, silently emptied the remainder of
+their folds.
+
+The missing hours were not random: mean outturn 74.83 against 101.59 on the
+hours that were predicted, so the champion was scored on the more expensive
+subset. Recomputing the baselines on the same 7,920 hours gives B1 34.49 and
+B2 28.01 against 35.68 and 28.50, so the comparison changes little and the
+skill figure of 0.320 stands. That it happens to be close is luck, not
+design.
+
+Both are fixed with regression tests. Neither fix has been evaluated on the
+locked test set and neither will be. The reported figures are what the code
+as it stood produced. 18.33 is an estimate of what a corrected implementation
+would have scored, not a measurement.
+
+**This is the held-out set doing its job.** Both defects survived 59 backtest
+folds across eight years. The DST cascade in particular was invisible in
+every aggregate metric, because missing predictions reduce the row count
+rather than degrade a score. Section 4 established the DST discipline that
+would have prevented it and section 9 failed to apply it.
+
+### The six pre-committed robustness checks
+
+**1. Leak quantification.** Substituting realised load and realised residual
+load for their published forecasts improves MAE from 23.45 to 18.75, a gain
+of 20.0%. That is what the gate closure constraint costs, and what a leaky
+implementation would report in its place.
+
+The figure is a lower bound. Wind and solar have no realised counterpart in
+the ingested series, so only two of the exogenous inputs were substituted. A
+fully leaky implementation would report a larger improvement still.
+
+**2. Training window.** Restricting training to post-2023 data improves MAE
+from 23.45 to 22.39. Less data is better here: the crisis period actively
+harms the model, which is consistent with section 8's finding that a market
+structure no longer present is a poor guide to the current one. The
+restricted variant also has lower RMSE, 108.49 against 129.97, since it
+diverged less severely.
+
+**3. Month to month dispersion.** Mean 23.65, median 17.67, standard
+deviation 20.74, range 9.84 to 87.51. The distribution is dominated by
+2026-02 at 87.5, the month containing the divergence; every other month falls
+between 9.8 and 28.4. Reporting the mean alone would misrepresent typical
+performance by roughly a third.
+
+**4. Both baselines.** Skill 0.320 against B1 and 0.177 against B2. The
+weaker denominator, fixed in section 5 before any result existed, flatters
+the headline by 14 percentage points.
+
+**5. By delivery hour.** Best: 00h at 8.2, 01h at 10.9, 05h at 13.3. Worst:
+13h at 43.2, 12h at 38.1, 14h at 36.7. Error is concentrated in the midday
+solar hours, which section 3b identified as where negative prices occur, at
+up to 12% of hours between 11h and 15h.
+
+**6. Conditional subsets.**
+
+| subset | n | B1 | B2 | N-HiTS | skill vs B1 |
+|---|---|---|---|---|---|
+| ordinary, 0 to 200 | 7,997 | 32.27 | 25.83 | **19.31** | 0.385 |
+| spike above 200 | 229 | 109.69 | 94.88 | **91.77** | 0.166 |
+| negative price | 531 | 55.24 | **40.11** | 60.27 | **-0.258** |
+
+### The champion is beaten by doing nothing on negative prices
+
+On 531 hours, 6.1% of the test year, N-HiTS records MAE 60.27 against 55.24
+for the weekly naive baseline and 40.11 for the daily one. Skill is -0.258.
+Both baselines forecast negative-price hours better than the champion does.
+
+The leak measurement locates the cause. With realised load substituted, the
+same architecture scores 31.88 on those hours, a 47% improvement against 20%
+overall. Negative prices arise when residual load approaches zero, and
+residual load is the difference between three forecast quantities, so its
+proportional error is largest exactly where its level is smallest. The
+model's failure on these hours is inherited from the accuracy of its inputs
+rather than produced by the model itself.
+
+This is a real limitation and it is worsening. Negative-price frequency has
+risen from 1.2% of hours in 2018 to 7.3% in 2026, so the subset on which this
+forecaster is worse than a naive baseline is the one growing fastest.
+
+### What the result is
+
+A day-ahead price forecaster that, on a year it had never seen, beats a
+weekly naive baseline by 32% and a daily naive baseline by 18% on MAE, with
+calibrated 80% intervals achieving 82.1% coverage.
+
+It fails on negative prices, it diverged for eighteen hours, and a DST bug
+cost it 9.6% of the evaluation year. All three are reported because the
+alternative is a number that reads better and means less.
