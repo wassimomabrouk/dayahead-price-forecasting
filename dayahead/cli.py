@@ -12,6 +12,7 @@ Command line interface.
     py -m dayahead.cli locked-test   (opens the held-out year, once)
     py -m dayahead.cli value
     py -m dayahead.cli forecast [--calibrate]
+    py -m dayahead.cli page
 
 Run from the repository root. No installation step required.
 """
@@ -664,6 +665,21 @@ def cmd_forecast(args) -> int:
     return 0
 
 
+def cmd_page(args) -> int:
+    """Section 15. Write the static page served by GitHub Pages."""
+    from .forecast.page import write_page
+
+    print("=" * 78)
+    print("SECTION 15: PUBLISHED PAGE")
+    print("=" * 78)
+    info = write_page()
+    print(f"\n  written: {info['path']}  ({info['bytes']:,} bytes)")
+    print("  Self-contained: no external assets, no build step, no running")
+    print("  process. GitHub Pages serves docs/ directly.")
+    print("=" * 78)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="dayahead")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -712,6 +728,9 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("value", help="section 13: battery arbitrage valuation")
     p.set_defaults(func=cmd_value)
+
+    p = sub.add_parser("page", help="section 15: write the published page")
+    p.set_defaults(func=cmd_page)
 
     p = sub.add_parser("forecast", help="section 14: tomorrow's forecast")
     p.add_argument("--calibrate", action="store_true",

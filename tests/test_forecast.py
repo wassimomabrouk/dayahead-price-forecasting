@@ -66,19 +66,28 @@ def _forecast_rows(day: str, pred: float = 50.0) -> pd.DataFrame:
     return df[LOG_COLUMNS]
 
 
-def test_a_forecast_is_never_silently_replaced():
+def test_a_forecast_is_never_silently_replaced(tmp_path, monkeypatch):
     """
     A rerun that overwrote an earlier forecast would let a bad day be quietly
     reissued. The log is append only for a reason.
+
+    Pointed at a temporary file: an earlier version read the real log, so it
+    passed or failed depending on what happened to be on disk. A test whose
+    result depends on the developer's working directory is not a test.
     """
+    import dayahead.forecast.daily as daily
+    monkeypatch.setattr(daily, "LOG_PATH", tmp_path / "log.csv")
+
     first = _forecast_rows("2026-09-11", pred=50.0)
-    log = append_forecast(first.copy())
+    log = daily.append_forecast(first.copy())
     assert len(log) == 24
+    log.to_csv(daily.LOG_PATH, index=False)
 
     # Same delivery hours, different numbers.
     second = _forecast_rows("2026-09-11", pred=999.0)
-    log2 = append_forecast(second)
-    assert len(log2) == len(log)
+    log2 = daily.append_forecast(second)
+    assert len(log2) == 24
+    assert (log2["y_pred"] == 50.0).all(), "the original forecast was replaced"
 
 
 def test_scoring_fills_outturn_once_it_exists():
@@ -141,3 +150,41 @@ def test_recent_blocks_are_always_refetched():
         "ingest_series must refetch the trailing blocks, not trust the cache"
     )
     assert "t in stale" in src
+
+
+# ------------------------------------------------- published page, section 15
+def test_page_renders_with_an_empty_log():
+    """
+    The page must exist before the first forecast does, otherwise the
+    scheduled job has nothing to publish on its first run.
+    """
+    from dayahead.forecast.page import build_page
+
+    html = build_page()
+    assert "<!DOCTYPE html>" in html
+    assert "Page generated" in html
+
+
+def test_page_has_no_external_dependencies():
+    """
+    A hosted dashboard sleeps and a CDN link rots. A single file with inline
+    SVG renders identically in a year whether or not anything is running.
+    """
+    import re
+
+    from dayahead.forecast.page import build_page
+
+    html = build_page()
+    assert not re.search(r'(src|href)="https?://', html), (
+        "the page must not fetch anything at load time"
+    )
+    assert "<script" not in html.lower()
+
+
+def test_page_states_when_it_was_generated():
+    """A stale page should be visibly stale rather than silently wrong."""
+    from dayahead.forecast.page import build_page
+
+    html = build_page()
+    assert "UTC" in html
+    assert "the daily job has not run" in html
