@@ -1452,3 +1452,118 @@ ever looks backwards.
 Until section 16 reports, the project's headline describes a research result
 on day-ahead vintage inputs, not a deployable system. The distinction is
 recorded here so that it is not quietly elided later.
+
+---
+
+## 28. Section 16 result: what the constraint costs
+
+### The publication timeline, measured
+
+Section 27 recorded that the renewable forecasts arrive after the auction.
+Repeated sampling through 11 September 2026 pins the sequence:
+
+| time, local | event |
+|---|---|
+| by 10:00 | day-ahead load forecast for the 12th published |
+| 12:00 | auction for the 12th clears |
+| approximately 12:45 | price for the 12th published |
+| between 17:11 and 18:11 | wind and solar forecasts for the 12th published |
+
+The renewable forecasts appear roughly five to six hours after the price they
+would have been used to predict, consistent with the 18:00 deadline in
+Regulation 543/2013 being treated as a target rather than a floor. Section 2a
+assumed publication well before the deadline; the assumption was wrong in the
+only direction that matters.
+
+### The comparison
+
+Same champion architecture, same locked test folds, same calibration. The
+only difference is the feature set: 44 columns against 31, with the 13
+dropped columns being every exogenous series except the load forecast, plus
+everything derived from them.
+
+Both figures are computed on the same 7,902 hours, with the 18 diverged hours
+from section 24 excluded from both sides so that the numerical failure does
+not contaminate the comparison.
+
+| | MAE | RMSE |
+|---|---|---|
+| all six exogenous inputs | **18.33** | 42.99 |
+| only those obtainable before the auction | **19.95** | **32.15** |
+| degradation | +8.8% | -25.2% |
+
+**The constraint costs 8.8% on MAE.** The dropped columns include
+`x_fc_residual`, which section 3b identified as the single most physically
+meaningful feature in the project, and every wind and solar column.
+
+**The reduced model has materially better RMSE.** 32.15 against 42.99. It is
+less accurate on average and substantially less prone to large errors. That
+is consistent with section 24, where the champion's worst subset was
+negative-price hours and the leak measurement showed the failure was
+inherited from the accuracy of the driver forecasts rather than produced by
+the model. Fewer inputs means fewer ways for a bad input to cause a bad
+forecast.
+
+### The number is much smaller than the backtest implied
+
+Section 19 measured the value of the fundamentals by the gap from SARIMA to
+SARIMAX: 27.7% overall and 34.0% within the post-crisis regime. Removing
+broadly the same information from N-HiTS on the locked test year costs 8.8%.
+
+Two explanations are available and this experiment cannot separate them.
+
+**The model substitutes for the feature.** Residual load drives price, but
+the previous day's 24 prices already encode the previous day's residual load
+pattern, and weather is persistent across days. A model with the capacity to
+exploit that recovers much of the same signal without being handed the
+explicit column. SARIMAX, linear and low capacity, could not. If this is
+right, it says that "this feature is worth 34%" is a claim about a
+model-feature pair rather than about the feature, and that feature importance
+measured on a weak model overstates what a strong one would lose.
+
+**The year was different.** The locked test period may simply have been one
+where price history carried more of the signal. Section 24 established that
+the test year had the highest negative-price frequency in the sample, so it
+was not an ordinary year.
+
+Distinguishing these would require refitting N-HiTS without the fundamentals
+across the full backtest, which is a larger experiment than the question
+merits at this point. The ambiguity is recorded rather than resolved.
+
+### The three figures that bracket the constraint
+
+| information set | MAE | relative |
+|---|---|---|
+| realised outturn substituted for forecasts | 18.75 | -20.0% |
+| all published day-ahead forecasts | 23.45 | reference |
+| only what is obtainable before the auction | 19.95 | see note |
+
+The first is section 13 check 1, measured over the full 8,757 hours with the
+divergence present. The third is measured on 7,902 hours with divergence
+excluded, so it is not directly comparable to the other two and the matched
+comparison in the table above is the one to read.
+
+What the pair establishes is the shape of the problem. Using information a
+participant could not have had improves the forecast by 20%. Restricting to
+information a participant certainly could have had costs 9%. The distance
+between those two is the entire space in which a claim about "day-ahead
+forecasting" can be honest or dishonest, and most of it is invisible in a
+backtest.
+
+### What the project now contains
+
+Two models, with different purposes, both reported.
+
+**The research result.** Full feature set, MAE 18.33 on the locked test year
+excluding the diverged hours, 23.45 as originally measured. It answers how
+much skill is achievable from day-ahead vintage inputs, and it cannot run
+live because four of its inputs arrive too late.
+
+**The operational model.** Reduced feature set, MAE 19.95. It answers what a
+system that actually runs can achieve, and it is what the daily job in
+section 14 uses.
+
+Neither replaces the other. A project reporting only the first would be
+describing a system that has never produced a forecast for a day that had not
+already happened. A project reporting only the second would have no measure of
+what the constraint costs.
