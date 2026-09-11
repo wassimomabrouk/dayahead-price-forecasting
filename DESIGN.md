@@ -64,6 +64,14 @@ what the assignment itself rests on.
 
 ## 2a. Limitation: forecast publication timing
 
+> **Superseded by section 27.** This section reasoned from the regulatory
+> deadline and concluded the timing could not be verified from the data. It
+> has since been verified by direct observation, and the answer is worse than
+> this section allows: the day-ahead wind and solar forecasts for delivery
+> day D are published by SMARD *after* day D's price has already cleared.
+> Section 27 records the measurement. This section is left unedited because
+> what was believed at the time, and on what basis, is part of the record.
+
 Established after section 3b, by checking Commission Regulation (EU)
 543/2013 rather than by inspecting data. Recorded as a disclosure. It does
 not alter any pre-committed evaluation choice in this document.
@@ -1343,3 +1351,104 @@ That the forecaster is worthless. It is more accurate, better calibrated and
 less prone to bad days. What is concluded is narrower and better supported:
 under this dispatch rule, on this battery, over this year, the additional
 accuracy did not convert into additional revenue.
+
+---
+
+## 27. Correction: the exogenous forecasts are not available at gate closure
+
+Section 2a reasoned from Commission Regulation (EU) 543/2013 that the
+publication timing of the day-ahead wind and solar forecasts could not be
+verified from SMARD, and proceeded on the assumption that German TSOs publish
+comfortably before their 18:00 deadline. That assumption was tested by
+observation on 11 September 2026 and it is false.
+
+### The observation
+
+SMARD's published series, read at roughly 11:00 and again after 13:00 local
+time on 11 September 2026. "Last published hour" is the latest delivery hour
+for which the series carries a value.
+
+| series | last published hour |
+|---|---|
+| price_delu | **2026-09-12 23:00** |
+| fc_load | **2026-09-12 23:00** |
+| fc_gen_total | 2026-09-11 23:00 |
+| fc_wind_on | 2026-09-11 23:00 |
+| fc_wind_off | 2026-09-11 23:00 |
+| fc_solar | 2026-09-11 23:00 |
+| fc_residual | 2026-09-11 23:00 |
+
+At 11:00 the load forecast for the 12th was published and the price was not,
+which is the ordering the day-ahead market implies. After the auction cleared
+at noon, the price for the 12th appeared. The wind and solar forecasts for the
+12th had still not appeared.
+
+So on this data source the sequence is: load forecast for D, then the auction
+for D clears, then the wind and solar forecasts for D. The last of those is
+published after the quantity it would have been used to predict is already
+public.
+
+### What this means for the project
+
+**Two of the six exogenous inputs are genuinely available at gate closure.**
+`fc_load`, and `fc_residual` only insofar as it derives from load. The other
+four arrive after the auction they would have informed.
+
+**The measured results stand, with a corrected description of the inputs.**
+Every figure reported in sections 17 to 26 was computed as described and is
+reproducible. What changes is the sentence describing what the model consumed.
+The accurate version is:
+
+> The exogenous inputs are day-ahead vintage forecasts, distinct from
+> intraday revisions and from realised outturn. Four of the six are published
+> by SMARD after the day-ahead auction for their delivery day has cleared, so
+> a participant could not have obtained those particular values at gate
+> closure, though they would have held forecasts of the same quantities from
+> a vendor or from the TSOs' own earlier publications.
+
+The claim that no realised outturn and no intraday revision enters the feature
+set remains true and is still enforced by the section 4 tests. The claim that
+every input was available at gate closure does not, and is withdrawn.
+
+**The gate closure machinery was not wrong, the availability assignment was.**
+`features/gate.py` correctly enforced whatever publication rule it was given.
+It was given `exog` values available at their own delivery day's gate closure,
+which section 2a acknowledged rested on an assumption. The assumption was the
+defect, not the enforcement, and no amount of testing the filter would have
+surfaced it. Only running the system forward did.
+
+### Why this did not surface earlier
+
+Every evaluation in this project is retrospective. Given a historical panel,
+the value of `fc_solar` for a past delivery hour is simply present, and
+nothing in the data says when it arrived. Fifty-nine backtest folds and a
+twelve month locked test all consumed those values without complaint, because
+the question they were asked was whether the model could predict the price,
+not whether the inputs existed in time.
+
+The defect became visible on the first attempt to produce a forecast for a day
+that had not happened yet, which is the one thing a backtest cannot simulate.
+That is an argument for building the operational path before the project is
+finished rather than after, and it is the third time in this project that
+running the system differently, rather than testing it harder, exposed
+something the tests could not.
+
+### What follows: section 16
+
+A reduced feature set, containing only what is demonstrably available before
+noon on D-1: price history, calendar terms, and the day-ahead load forecast.
+The champion is refitted on it and evaluated over the same locked test year.
+
+The gap between that result and the 23.45 EUR/MWh already measured is the cost
+of the constraint, and it is the mirror of the section 13 leak quantification.
+That measured what using forbidden information would buy, 20.0%. This measures
+what being able to run at all costs.
+
+Both figures are worth having, and neither is available to a project that only
+ever looks backwards.
+
+### Status of the claim in the README
+
+Until section 16 reports, the project's headline describes a research result
+on day-ahead vintage inputs, not a deployable system. The distinction is
+recorded here so that it is not quietly elided later.
