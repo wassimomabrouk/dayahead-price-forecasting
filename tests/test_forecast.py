@@ -260,3 +260,51 @@ def test_a_variant_without_history_raises_rather_than_silently_shrinking():
     })
     with pytest.raises(ValueError, match="no backtest history"):
         calibrate_test(test, pd.DataFrame(columns=test.columns))
+
+
+def test_the_daily_job_does_not_wait_for_inputs_that_arrive_too_late():
+    """
+    Section 27: wind and solar for delivery day D are published after D's
+    auction has cleared. A job that required them would refuse every day and
+    the track record would never begin.
+    """
+    import numpy as np
+
+    from dayahead.forecast.daily import OPERATIONAL_EXOG, next_delivery_day
+
+    assert "fc_load" in OPERATIONAL_EXOG
+    for late in ("fc_solar", "fc_wind_on", "fc_wind_off", "fc_residual"):
+        assert late not in OPERATIONAL_EXOG
+
+    idx = pd.date_range("2026-09-10", "2026-09-13 23:00", freq="h", tz="UTC")
+    df = pd.DataFrame({c: 1000.0 for c in cfg.ALL_SERIES}, index=idx)
+    df[cfg.TARGET] = 50.0
+    cut = pd.Timestamp("2026-09-12 21:00", tz="UTC")
+    df.loc[df.index > cut, cfg.TARGET] = np.nan
+    # Exactly the observed situation: the load forecast reaches tomorrow, the
+    # renewable forecasts do not.
+    for late in ("fc_solar", "fc_wind_on", "fc_wind_off", "fc_gen_total",
+                 "fc_residual"):
+        df.loc[df.index > cut, late] = np.nan
+
+    day = next_delivery_day(df)
+    assert day is not None, "the job refused a day it could have forecast"
+    assert day.strftime("%Y-%m-%d") == "2026-09-13"
+
+
+def test_requiring_the_full_exog_set_would_refuse():
+    """The behaviour before section 16, kept as a contrast."""
+    import numpy as np
+
+    from dayahead.forecast.daily import next_delivery_day
+
+    idx = pd.date_range("2026-09-10", "2026-09-13 23:00", freq="h", tz="UTC")
+    df = pd.DataFrame({c: 1000.0 for c in cfg.ALL_SERIES}, index=idx)
+    df[cfg.TARGET] = 50.0
+    cut = pd.Timestamp("2026-09-12 21:00", tz="UTC")
+    df.loc[df.index > cut, cfg.TARGET] = np.nan
+    for late in ("fc_solar", "fc_wind_on", "fc_wind_off", "fc_gen_total",
+                 "fc_residual"):
+        df.loc[df.index > cut, late] = np.nan
+
+    assert next_delivery_day(df, required_exog=cfg.EXOG) is None

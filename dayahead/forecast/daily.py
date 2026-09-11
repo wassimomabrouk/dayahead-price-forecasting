@@ -5,6 +5,16 @@ Produces tomorrow's 24 hourly prices with calibrated intervals, appends them
 to a track record, and scores earlier forecasts once their outturn is
 published.
 
+Which feature set
+-----------------
+
+The reduced one, from section 16. Section 27 established that four of the six
+exogenous inputs are published by SMARD after the auction they would have
+informed, so a live system cannot use them however good they are in a
+backtest. This module uses price history, calendar terms and the day-ahead
+load forecast, which costs 8.8% on MAE against the full set and is the
+difference between a system that runs and one that does not.
+
 Why the untrimmed panel
 -----------------------
 
@@ -96,16 +106,24 @@ def load_calibration() -> dict | None:
 
 
 # ------------------------------------------------------------- the next day
-def next_delivery_day(panel_full: pd.DataFrame) -> pd.Timestamp | None:
+# The exogenous series a live system can actually obtain before gate closure.
+# Section 27. Requiring all six here would make the job refuse every day,
+# because four of them arrive after the auction.
+OPERATIONAL_EXOG = ["fc_load"]
+
+
+def next_delivery_day(panel_full: pd.DataFrame,
+                      required_exog: list[str] | None = None) -> pd.Timestamp | None:
     """
-    The earliest local delivery date with complete exogenous inputs and no
+    The earliest local delivery date with the required inputs and no
     published price.
 
     Returns None when there is nothing new to forecast, which is the normal
     state for most of the day and is not an error.
     """
     local = panel_full.tz_convert(cfg.LOCAL_TZ)
-    exog_ok = local[cfg.EXOG].notna().all(axis=1)
+    cols = required_exog if required_exog is not None else OPERATIONAL_EXOG
+    exog_ok = local[cols].notna().all(axis=1)
     price_missing = local[cfg.TARGET].isna()
 
     by_day = pd.DataFrame({
@@ -122,8 +140,8 @@ def produce_forecast(model_name: str = "N-HiTS",
                      verbose: bool = True) -> pd.DataFrame | None:
     """Fit on all published history, forecast the next delivery day."""
     from ..data.validate import load_panel
-    from ..features.build import build_features
-    from ..models.nhits import nhits
+    from ..features.build import build_reduced_features
+    from ..models.nhits import NHiTSForecaster
 
     panel_full = load_panel(full=True)
     target_day = next_delivery_day(panel_full)
@@ -139,7 +157,7 @@ def produce_forecast(model_name: str = "N-HiTS",
     # Features are built on the untrimmed panel, cut at the end of the target
     # day so nothing later can enter.
     usable = panel_full.tz_convert(cfg.LOCAL_TZ).loc[:day_end]
-    X, _ = build_features(panel=usable.tz_convert("UTC"))
+    X, _ = build_reduced_features(panel=usable.tz_convert("UTC"))
 
     train = X[X["y"].notna() & X["is_usable"]]
     future = X.loc[target_day:day_end]
@@ -152,7 +170,13 @@ def produce_forecast(model_name: str = "N-HiTS",
     if verbose:
         print(f"  training rows: {len(train):,}   forecast hours: {len(future)}")
 
-    model = nhits()
+    # Same architecture as the champion, exogenous list restricted to what is
+    # present in the reduced matrix.
+    model = NHiTSForecaster(
+        name=model_name,
+        futr_exog=[c for c in ("x_fc_load", "cal_is_nonworking",
+                               "cal_is_holiday") if c in cols],
+    )
     model.fit(train[cols], train["y"])
     quantiles = model.predict_quantiles(future[cols])
 
