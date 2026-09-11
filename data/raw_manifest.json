@@ -1,5 +1,5 @@
 {
-  "created_utc": "2026-09-10T20:11:02.141779+00:00",
+  "created_utc": "2026-09-11T14:18:20.898035+00:00",
   "window_start_utc": "2018-09-30T22:00:00+00:00",
   "region": "DE",
   "resolution": "hour",
@@ -12,8 +12,8 @@
       "fetched": 2,
       "failed": [],
       "points": 69720,
-      "nulls": 48,
-      "null_pct": 0.0688,
+      "nulls": 24,
+      "null_pct": 0.0344,
       "first_block": 1538344800000,
       "last_block": 1788732000000
     },
@@ -77,8 +77,8 @@
       "fetched": 2,
       "failed": [],
       "points": 69720,
-      "nulls": 72,
-      "null_pct": 0.1033,
+      "nulls": 48,
+      "null_pct": 0.0688,
       "first_block": 1538344800000,
       "last_block": 1788732000000
     },
@@ -103,8 +103,8 @@
       "fetched": 2,
       "failed": [],
       "points": 69720,
-      "nulls": 75,
-      "null_pct": 0.1076,
+      "nulls": 57,
+      "null_pct": 0.0818,
       "first_block": 1538344800000,
       "last_block": 1788732000000
     },
@@ -116,11 +116,11 @@
       "fetched": 2,
       "failed": [],
       "points": 69720,
-      "nulls": 75,
-      "null_pct": 0.1076,
+      "nulls": 57,
+      "null_pct": 0.0818,
       "first_block": 1538344800000,
       "last_block": 1788732000000
     }
   },
-  "elapsed_seconds": 10.6
+  "elapsed_seconds": 42.1
 }

@@ -188,3 +188,75 @@ def test_page_states_when_it_was_generated():
     html = build_page()
     assert "UTC" in html
     assert "the daily job has not run" in html
+
+
+# ------------------------------------- operationally available set, section 16
+def test_reduced_set_keeps_only_obtainable_exogenous_columns():
+    """
+    Section 27 established which exogenous inputs SMARD publishes before the
+    auction. Everything else has to go, including fc_residual, which derives
+    from load but also from wind and solar and therefore inherits their
+    unavailability.
+    """
+    from dayahead.features.build import reduced_columns
+
+    cols = ["cal_hour", "cal_sin_day_1", "price_d1_same_hour",
+            "price_d7_same_hour", "price_d1_mean",
+            "x_fc_load", "x_fc_residual", "x_fc_solar", "x_fc_wind_on",
+            "x_wind_total", "x_renewable_share", "x_residual_day_max",
+            "y", "is_usable"]
+    keep = reduced_columns(pd.DataFrame(columns=cols))
+
+    assert "x_fc_load" in keep
+    assert "x_fc_residual" not in keep, (
+        "fc_residual is load minus wind minus solar and inherits their "
+        "publication delay"
+    )
+    for banned in ("x_fc_solar", "x_fc_wind_on", "x_wind_total",
+                   "x_renewable_share", "x_residual_day_max"):
+        assert banned not in keep
+
+    # Price history and calendar are unconditionally available.
+    for kept in ("cal_hour", "cal_sin_day_1", "price_d1_same_hour",
+                 "price_d7_same_hour", "price_d1_mean"):
+        assert kept in keep
+
+
+def test_reduced_set_excludes_the_target_and_the_flag():
+    from dayahead.features.build import reduced_columns
+
+    keep = reduced_columns(pd.DataFrame(columns=["cal_hour", "y", "is_usable"]))
+    assert "y" not in keep
+    assert "is_usable" not in keep
+
+
+def test_variant_names_map_back_to_their_base_model():
+    """
+    Regression test. A variant whose suffix is unknown calibrates from the
+    test folds alone and loses the first six to the minimum-history rule,
+    reporting metrics on half the year with nothing but a smaller n to show
+    for it.
+    """
+    from dayahead.evaluation.locked_test import base_model_name
+
+    assert base_model_name("N-HiTS_operational") == "N-HiTS"
+    assert base_model_name("N-HiTS_LEAKY") == "N-HiTS"
+    assert base_model_name("N-HiTS_post2023") == "N-HiTS"
+    assert base_model_name("N-HiTS") == "N-HiTS"
+    assert base_model_name("B2_daily_naive") == "B2_daily_naive"
+
+
+def test_a_variant_without_history_raises_rather_than_silently_shrinking():
+    import pandas as pd
+
+    from dayahead.evaluation.locked_test import calibrate_test
+
+    test = pd.DataFrame({
+        "timestamp": pd.date_range("2026-01-01", periods=48, freq="h",
+                                   tz="UTC"),
+        "model": "N-HiTS_unknownvariant", "fold": "2026-01",
+        "regime": "post-crisis", "y_true": 50.0, "y_pred": 50.0,
+        **{f"q{q}0": 50.0 for q in range(1, 10)},
+    })
+    with pytest.raises(ValueError, match="no backtest history"):
+        calibrate_test(test, pd.DataFrame(columns=test.columns))

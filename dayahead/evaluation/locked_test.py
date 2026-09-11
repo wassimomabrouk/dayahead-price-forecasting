@@ -59,6 +59,39 @@ def _run_folds(X: pd.DataFrame, models, folds, verbose=True) -> pd.DataFrame:
         bt.backtest_frame = original_frame
 
 
+def evaluate_operational(verbose: bool = True) -> pd.DataFrame:
+    """
+    Section 16. The champion on the feature set a live system can assemble.
+
+    Section 27 established that four of the six exogenous inputs are
+    published by SMARD after the auction they would have informed. This
+    refits the champion using only price history, calendar terms and the
+    day-ahead load forecast, over the same locked test folds, so the gap
+    against the section 12 result is the cost of being able to run.
+
+    It is the mirror of the section 13 leak quantification. That measured
+    what using forbidden information would buy; this measures what being
+    restricted to obtainable information costs.
+    """
+    from ..features.build import build_features, build_reduced_features
+    from ..models.nhits import NHiTSForecaster
+
+    full, _ = build_features()
+    folds = test_folds(full, i_am_opening_the_locked_test_set=True)
+
+    X, _ = build_reduced_features(verbose=verbose)
+    # The champion's exogenous list must be restricted too, or the model will
+    # ask for columns the reduced matrix no longer has.
+    available = [c for c in X.columns if c.startswith(("x_", "cal_"))]
+    model = NHiTSForecaster(name="N-HiTS_operational",
+                            futr_exog=[c for c in available
+                                       if c in ("x_fc_load", "cal_is_nonworking",
+                                                "cal_is_holiday")])
+    preds = _run_folds(X, [model], folds, verbose)
+    preds["model"] = "N-HiTS_operational"
+    return preds
+
+
 def evaluate_locked_test(verbose: bool = True) -> dict:
     from ..features.build import build_features, build_leaky_features
     from ..models.nhits import nhits
@@ -94,6 +127,21 @@ def evaluate_locked_test(verbose: bool = True) -> dict:
     return results
 
 
+# Variant suffixes that share a base model's backtest history. A variant
+# whose suffix is missing here silently loses its calibration history, and
+# with it the first folds of the test year: the section 16 run produced
+# predictions for all twelve folds and reported metrics on six, because
+# "_operational" was not on this list.
+VARIANT_SUFFIXES = ("_LEAKY", "_post2023", "_operational")
+
+
+def base_model_name(name: str) -> str:
+    for suffix in VARIANT_SUFFIXES:
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
 def calibrate_test(test_preds: pd.DataFrame,
                    backtest_preds: pd.DataFrame) -> pd.DataFrame:
     """
@@ -102,12 +150,22 @@ def calibrate_test(test_preds: pd.DataFrame,
     Backtest and test predictions for the same model are concatenated so that
     the first test months draw their calibration from the final backtest
     folds. Only test rows are returned.
+
+    A variant with no backtest history calibrates from the test folds alone,
+    which costs the first six of them to the minimum-history rule. That is a
+    silent loss: the metrics simply report a smaller n.
     """
     out = []
     test_folds_set = set(test_preds["fold"])
     for name, group in test_preds.groupby("model"):
-        history_name = name.replace("_LEAKY", "").replace("_post2023", "")
+        history_name = base_model_name(name)
         history = backtest_preds[backtest_preds["model"] == history_name]
+        if history.empty:
+            raise ValueError(
+                f"no backtest history for '{name}' (base '{history_name}'). "
+                "Add its suffix to VARIANT_SUFFIXES, or the first folds of "
+                "the test year will be dropped without warning."
+            )
         joined = pd.concat([history.assign(model=name), group], ignore_index=True)
         cal, _ = calibrate_model(joined)
         out.append(cal[cal["fold"].isin(test_folds_set)])

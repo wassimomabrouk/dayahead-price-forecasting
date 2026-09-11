@@ -23,6 +23,19 @@ from .gate import FeatureSpec, audit, check_spec, issuance_time
 # DST transitions and a leap day so the arithmetic is exercised, not assumed.
 # 02:00 does not exist on spring-forward days and is ambiguous on
 # autumn-back days, so the hour after each transition is used instead.
+# Section 27: the exogenous columns SMARD publishes before noon on D-1.
+#
+# Verified by observation on 11 September 2026, not inferred from the
+# regulatory deadline. At 11:00 the load forecast for the 12th was published;
+# the wind and solar forecasts for the 12th had still not appeared after the
+# auction for that day had already cleared.
+#
+# fc_residual is excluded despite deriving partly from load, because it is
+# load minus wind minus solar and therefore inherits the components that are
+# unavailable. That is the feature section 3b identified as the single most
+# physically meaningful one, and it is the most expensive exclusion here.
+AVAILABLE_EXOG_PREFIXES = ("x_fc_load",)
+
 CHECK_SAMPLE_LOCAL = [
     "2019-03-31 03:00", "2019-10-27 03:00", "2020-02-29 12:00",
     "2021-01-01 00:00", "2022-06-15 13:00", "2024-03-31 03:00",
@@ -132,6 +145,55 @@ def build_features(panel: pd.DataFrame | None = None,
     X["is_usable"] = local["is_usable"] & X.drop(columns=["y", "is_usable"],
                                                  errors="ignore").notna().all(axis=1)
     return X, specs
+
+
+def reduced_columns(X: pd.DataFrame) -> list[str]:
+    """
+    Feature columns available before gate closure on this data source.
+
+    Price history and calendar terms unconditionally; of the exogenous
+    columns, only those derived from the load forecast. See section 27.
+    """
+    keep = []
+    for c in X.columns:
+        if c in ("y", "is_usable"):
+            continue
+        if c.startswith("x_"):
+            if c.startswith(AVAILABLE_EXOG_PREFIXES):
+                keep.append(c)
+            continue
+        keep.append(c)
+    return keep
+
+
+def build_reduced_features(panel: pd.DataFrame | None = None,
+                           verbose: bool = False
+                           ) -> tuple[pd.DataFrame, list[FeatureSpec]]:
+    """
+    The feature matrix an operational system can actually assemble.
+
+    Identical to build_features except that exogenous columns SMARD publishes
+    after the day-ahead auction are removed. Nothing is imputed or
+    substituted: a column that is not available is simply absent, which is
+    what a live system would face.
+    """
+    X, specs = build_features(panel=panel, verbose=False)
+    keep = reduced_columns(X)
+    dropped = [c for c in X.columns
+               if c not in keep and c not in ("y", "is_usable")]
+
+    out = X[keep + ["y"]].copy()
+    # is_usable is recomputed on the reduced set: a row missing only a
+    # dropped column is perfectly usable here.
+    out["is_usable"] = X["is_usable"] | X[keep].notna().all(axis=1)
+    out["is_usable"] = X[keep].notna().all(axis=1) & X["y"].notna()
+
+    if verbose:
+        print(f"    kept {len(keep)} features, dropped {len(dropped)}")
+        print(f"    dropped: {dropped}")
+
+    kept_specs = [sp for sp in specs if sp.name in set(keep)]
+    return out, kept_specs
 
 
 def feature_names(specs: list[FeatureSpec]) -> list[str]:

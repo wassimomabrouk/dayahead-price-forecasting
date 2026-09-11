@@ -13,6 +13,7 @@ Command line interface.
     py -m dayahead.cli value
     py -m dayahead.cli forecast [--calibrate]
     py -m dayahead.cli page
+    py -m dayahead.cli operational
 
 Run from the repository root. No installation step required.
 """
@@ -680,6 +681,84 @@ def cmd_page(args) -> int:
     return 0
 
 
+def cmd_operational(args) -> int:
+    """Section 16. What the gate closure constraint costs in practice."""
+    import json
+
+    import numpy as np
+    import pandas as pd
+
+    from .evaluation.locked_test import calibrate_test, evaluate_operational
+    from .evaluation.metrics import mae, rmse, skill_score
+
+    print("=" * 78)
+    print("SECTION 16: THE OPERATIONALLY AVAILABLE FEATURE SET")
+    print("=" * 78)
+    print("\n  Section 27: four of the six exogenous inputs are published by")
+    print("  SMARD after the auction they would have informed. This refits the")
+    print("  champion on price history, calendar terms and the load forecast")
+    print("  alone, over the same locked test folds.")
+
+    store = cfg.PROCESSED / "locked_test_predictions.parquet"
+    if not store.exists():
+        print("\n  no locked test predictions. Run: py -m dayahead.cli locked-test")
+        return 1
+    existing = pd.read_parquet(store)
+
+    print()
+    reduced = evaluate_operational(verbose=True)
+
+    backtest = pd.read_parquet(cfg.PROCESSED / "backtest_predictions.parquet")
+    calibrated = calibrate_test(reduced, backtest)
+
+    combined = pd.concat(
+        [existing[existing["model"] != "N-HiTS_operational"], calibrated],
+        ignore_index=True)
+    combined.to_parquet(store)
+
+    base = combined[combined["model"] == "B1_weekly_naive"].set_index("timestamp")
+    rows = []
+    for name in ["N-HiTS", "N-HiTS_operational", "B2_daily_naive",
+                 "B1_weekly_naive"]:
+        g = combined[combined["model"] == name].set_index("timestamp")
+        if g.empty:
+            continue
+        b = base["y_pred"].reindex(g.index)
+        rows.append({
+            "model": name,
+            "n": int(g["y_pred"].notna().sum()),
+            "mae": mae(g["y_true"], g["y_pred"]),
+            "rmse": rmse(g["y_true"], g["y_pred"]),
+            "skill_vs_B1": skill_score(g["y_true"], g["y_pred"], b),
+        })
+    table = pd.DataFrame(rows)
+    print("\n  locked test year")
+    print(table.round(3).to_string(index=False))
+
+    def get(name):
+        r = table[table["model"] == name]
+        return float(r["mae"].iloc[0]) if len(r) else float("nan")
+
+    full_mae, op_mae = get("N-HiTS"), get("N-HiTS_operational")
+    print(f"\n  cost of the constraint")
+    print(f"    with all six exogenous inputs   {full_mae:.2f}")
+    print(f"    with those actually available   {op_mae:.2f}")
+    print(f"    degradation                     "
+          f"{100 * (op_mae / full_mae - 1):+.1f}%")
+    print("\n  Compare with section 13 check 1: substituting realised outturn")
+    print("  for the published forecasts improved MAE by 20.0%. That is what")
+    print("  cheating buys. The figure above is what honesty costs.")
+
+    table.to_csv(cfg.REPORTS / "operational_comparison.csv", index=False)
+    with (cfg.REPORTS / "operational.json").open("w", encoding="utf-8") as f:
+        json.dump({"full_mae": full_mae, "operational_mae": op_mae,
+                   "degradation_pct": 100 * (op_mae / full_mae - 1),
+                   "table": table.to_dict("records")}, f, indent=2, default=str)
+    print(f"\n  written: reports/operational_comparison.csv")
+    print("=" * 78)
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="dayahead")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -728,6 +807,10 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("value", help="section 13: battery arbitrage valuation")
     p.set_defaults(func=cmd_value)
+
+    p = sub.add_parser("operational",
+                       help="section 16: refit on obtainable inputs only")
+    p.set_defaults(func=cmd_operational)
 
     p = sub.add_parser("page", help="section 15: write the published page")
     p.set_defaults(func=cmd_page)
