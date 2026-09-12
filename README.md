@@ -13,9 +13,10 @@ and a daily forecast that has been running since September 2026.
 
 **The most accurate model cannot run.**
 
-Four of the six exogenous inputs it depends on, the day-ahead wind and solar
-forecasts, are published by SMARD *after* the auction they would have
-informed. Measured directly on 11 September 2026: the load forecast for the
+Five of the six exogenous inputs it depends on (`fc_solar`, `fc_wind_on`,
+`fc_wind_off`, `fc_gen_total` and `fc_residual`) are published by SMARD
+*after* the price they would have been used to predict is already public.
+Only the day-ahead load forecast, `fc_load`, arrives in time. Measured directly on 11 September 2026: the load forecast for the
 next day appeared before 10:00, the auction cleared at 12:00, the price was
 published around 12:45, and the wind and solar forecasts arrived between 17:11
 and 18:11. Roughly five hours too late to be an input to the decision they
@@ -25,10 +26,15 @@ A backtest cannot see this. In a historical table every value is simply
 present and nothing records when it arrived. It surfaced on the first attempt
 to forecast a day that had not happened yet.
 
-Rebuilding the model on the inputs that genuinely arrive in time costs
-**8.8%** on MAE, 18.33 to 19.95 EUR/MWh, and produces a system that runs every
-morning. The repository contains both, because the gap between them is the
-result.
+`fc_residual` is the costly loss. It is load minus wind minus solar, so it
+inherits the delay of its components, and it was the single most physically
+meaningful feature in the project: it approximates where the market sits on
+the merit-order curve.
+
+Rebuilding the model on what genuinely arrives in time, price history,
+calendar terms and `fc_load`, costs **8.8%** on MAE, 18.33 to 19.95 EUR/MWh,
+and produces a system that runs every morning. The repository contains both,
+because the gap between them is the result.
 
 **A 17.7% better forecast earned no additional money.**
 
@@ -84,7 +90,7 @@ Three measurements bracket the constraint:
 |---|---|---|
 | realised outturn substituted for the forecasts | 18.75 | 20.0% better |
 | published day-ahead forecasts | 23.45 | reference |
-| only what arrives before the auction | 19.95 | 8.8% worse than matched full set |
+| only what arrives in time (`fc_load` alone) | 19.95 | 8.8% worse than matched full set |
 
 The first figure is what a leaky implementation would report. The third is
 what a system that can actually run achieves. Most published work on this
