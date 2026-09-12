@@ -211,6 +211,5 @@ part of the problem.
 
 ---
 
-## Licence
-
-MIT. Data from Bundesnetzagentur SMARD under their terms of use.
+Built by Wassim Mabrouk. Data from Bundesnetzagentur SMARD under their terms
+of use.
