@@ -156,7 +156,17 @@ def produce_forecast(model_name: str = "N-HiTS",
 
     # Features are built on the untrimmed panel, cut at the end of the target
     # day so nothing later can enter.
-    usable = panel_full.tz_convert(cfg.LOCAL_TZ).loc[:day_end]
+    #
+    # panel_full is written before the trim, so it carries no is_usable
+    # column: that flag is added by mark_usable during validation. The
+    # feature builder expects it, so it is recomputed here on the columns
+    # this model actually consumes. Copying the trimmed panel's flag would be
+    # wrong, since it was computed against the full exogenous set and would
+    # mark the target day unusable for missing wind and solar that this model
+    # does not use.
+    usable = panel_full.tz_convert(cfg.LOCAL_TZ).loc[:day_end].copy()
+    required = [cfg.TARGET] + OPERATIONAL_EXOG
+    usable["is_usable"] = usable[required].notna().all(axis=1)
     X, _ = build_reduced_features(panel=usable.tz_convert("UTC"))
 
     train = X[X["y"].notna() & X["is_usable"]]

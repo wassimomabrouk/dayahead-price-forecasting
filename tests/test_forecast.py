@@ -308,3 +308,44 @@ def test_requiring_the_full_exog_set_would_refuse():
         df.loc[df.index > cut, late] = np.nan
 
     assert next_delivery_day(df, required_exog=cfg.EXOG) is None
+
+
+def test_panel_full_has_no_usable_flag_and_the_forecast_path_adds_one():
+    """
+    Regression test. panel_full is written before the trim, so it carries no
+    is_usable column; that flag is added during validation. The daily job
+    reads panel_full, so it has to supply the flag itself.
+
+    Copying the trimmed panel's flag would be wrong rather than merely
+    awkward: that flag was computed against all six exogenous series, so it
+    marks the target day unusable for missing wind and solar the operational
+    model does not use.
+    """
+    import inspect
+
+    import numpy as np
+
+    from dayahead.features.build import build_reduced_features
+    from dayahead.forecast.daily import OPERATIONAL_EXOG, produce_forecast
+
+    src = inspect.getsource(produce_forecast)
+    assert 'usable["is_usable"]' in src, (
+        "the daily job must compute is_usable, not assume panel_full has it"
+    )
+
+    idx = pd.date_range("2026-08-01", "2026-09-13 23:00", freq="h", tz="UTC")
+    panel = pd.DataFrame({c: 1000.0 for c in cfg.ALL_SERIES}, index=idx)
+    panel[cfg.TARGET] = 50.0
+    cut = pd.Timestamp("2026-09-12 21:00", tz="UTC")
+    panel.loc[panel.index > cut, cfg.TARGET] = np.nan
+    for late in ("fc_solar", "fc_wind_on", "fc_wind_off", "fc_gen_total",
+                 "fc_residual"):
+        panel.loc[panel.index > cut, late] = np.nan
+    assert "is_usable" not in panel.columns
+
+    required = [cfg.TARGET] + OPERATIONAL_EXOG
+    panel["is_usable"] = panel[required].notna().all(axis=1)
+    X, _ = build_reduced_features(panel=panel)
+
+    target_day = X.loc["2026-09-13":"2026-09-13 23:00"]
+    assert len(target_day) == 24, "the target day lost rows it should have"
