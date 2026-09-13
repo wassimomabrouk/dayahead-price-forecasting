@@ -18,5 +18,12 @@ models = [
 ]
 dev = ["pytest>=8.0", "matplotlib>=3.8", "jupyter"]
 
+# Without this, setuptools refuses to build: it finds data, reports,
+# notebooks and dayahead at the top level and will not guess which is the
+# package. The project runs without installation, so this never surfaced
+# locally; it surfaced the first time CI tried to install it.
+[tool.setuptools.packages.find]
+include = ["dayahead*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
