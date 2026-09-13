@@ -21,7 +21,7 @@
     "load_real": 0,
     "residual_real": 0
   },
-  "grid_rows": 69720,
+  "grid_rows": 69888,
   "interior_nulls": {
     "price_delu": 0,
     "fc_gen_total": 0,
@@ -48,7 +48,7 @@
     ]
   },
   "cutoff_utc": "2026-09-12 21:00:00+00:00",
-  "rows_full": 69720,
+  "rows_full": 69888,
   "rows_trimmed": 69696,
   "rows_usable": 69672,
   "rows_excluded": 24,

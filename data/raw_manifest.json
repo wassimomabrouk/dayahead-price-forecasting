@@ -1,5 +1,5 @@
 {
-  "created_utc": "2026-09-12T09:19:43.174360+00:00",
+  "created_utc": "2026-09-13T09:31:38.034349+00:00",
   "window_start_utc": "2018-09-30T22:00:00+00:00",
   "region": "DE",
   "resolution": "hour",
@@ -25,8 +25,8 @@
       "fetched": 2,
       "failed": [],
       "points": 69720,
-      "nulls": 24,
-      "null_pct": 0.0344,
+      "nulls": 0,
+      "null_pct": 0.0,
       "first_block": 1538344800000,
       "last_block": 1788732000000
     },
@@ -38,8 +38,8 @@
       "fetched": 2,
       "failed": [],
       "points": 69720,
-      "nulls": 24,
-      "null_pct": 0.0344,
+      "nulls": 0,
+      "null_pct": 0.0,
       "first_block": 1538344800000,
       "last_block": 1788732000000
     },
@@ -51,8 +51,8 @@
       "fetched": 2,
       "failed": [],
       "points": 69720,
-      "nulls": 24,
-      "null_pct": 0.0344,
+      "nulls": 0,
+      "null_pct": 0.0,
       "first_block": 1538344800000,
       "last_block": 1788732000000
     },
@@ -64,23 +64,23 @@
       "fetched": 2,
       "failed": [],
       "points": 69720,
-      "nulls": 24,
-      "null_pct": 0.0344,
+      "nulls": 0,
+      "null_pct": 0.0,
       "first_block": 1538344800000,
       "last_block": 1788732000000
     },
     "fc_load": {
       "filter_id": "411",
       "role": "exog",
-      "blocks_expected": 415,
-      "blocks_stored": 415,
+      "blocks_expected": 416,
+      "blocks_stored": 416,
       "fetched": 2,
       "failed": [],
-      "points": 69720,
-      "nulls": 24,
-      "null_pct": 0.0344,
+      "points": 69888,
+      "nulls": 168,
+      "null_pct": 0.2404,
       "first_block": 1538344800000,
-      "last_block": 1788732000000
+      "last_block": 1789336800000
     },
     "fc_residual": {
       "filter_id": "4362",
@@ -90,8 +90,8 @@
       "fetched": 2,
       "failed": [],
       "points": 69720,
-      "nulls": 48,
-      "null_pct": 0.0688,
+      "nulls": 24,
+      "null_pct": 0.0344,
       "first_block": 1538344800000,
       "last_block": 1788732000000
     },
@@ -103,8 +103,8 @@
       "fetched": 2,
       "failed": [],
       "points": 69720,
-      "nulls": 38,
-      "null_pct": 0.0545,
+      "nulls": 14,
+      "null_pct": 0.0201,
       "first_block": 1538344800000,
       "last_block": 1788732000000
     },
@@ -116,11 +116,11 @@
       "fetched": 2,
       "failed": [],
       "points": 69720,
-      "nulls": 38,
-      "null_pct": 0.0545,
+      "nulls": 14,
+      "null_pct": 0.0201,
       "first_block": 1538344800000,
       "last_block": 1788732000000
     }
   },
-  "elapsed_seconds": 32.7
+  "elapsed_seconds": 8.6
 }

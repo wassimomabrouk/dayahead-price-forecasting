@@ -151,6 +151,22 @@ def produce_forecast(model_name: str = "N-HiTS",
         return None
 
     day_end = target_day + pd.Timedelta(hours=23)
+
+    # Check the log before fitting, not after. append_forecast already
+    # refuses to overwrite an existing forecast, but by then the model has
+    # been refitted for nothing. SMARD's price publication lags over
+    # weekends, so the same delivery day can remain the target for two or
+    # three consecutive runs.
+    existing = load_log()
+    if len(existing):
+        already = set(pd.to_datetime(existing["delivery_hour_local"],
+                                     utc=True, errors="coerce")
+                      .dt.tz_convert(cfg.LOCAL_TZ).dt.normalize())
+        if target_day in already:
+            if verbose:
+                print(f"  {target_day:%Y-%m-%d} already forecast, nothing to do")
+            return None
+
     if verbose:
         print(f"  delivery day: {target_day:%Y-%m-%d}")
 
