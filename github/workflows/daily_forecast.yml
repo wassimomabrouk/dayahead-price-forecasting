@@ -1,12 +1,27 @@
 name: daily forecast
 
-# Runs after SMARD publishes the day-ahead forecasts for tomorrow. 09:00 UTC
-# is 10:00 or 11:00 Berlin depending on the season, comfortably before the
-# noon auction and after the regulatory publication deadline for the
-# day-ahead load forecast.
+# Two runs a day, half an hour apart, both before the noon auction that fixes
+# tomorrow's prices.
+#
+# Cron is UTC and Berlin moves, so the local times differ by season:
+#
+#   09:00 UTC  ->  11:00 Berlin in summer, 10:00 in winter
+#   09:30 UTC  ->  11:30 Berlin in summer, 10:30 in winter
+#
+# Both land before midday either way, and both fall after the regulatory
+# deadline for the day-ahead load forecast, which is two hours before gate
+# closure. An earlier pair would give more margin against the auction and
+# risk running before the load forecast exists, which is the wrong trade:
+# the input has to be there before the run is worth making.
+#
+# The second run is nearly free when the first succeeded. The forecast
+# command checks the log before fitting and exits at once if the day is
+# already covered, so it only does real work when the earlier run found no
+# load forecast or failed outright.
 on:
   schedule:
     - cron: "0 9 * * *"
+    - cron: "30 9 * * *"
   workflow_dispatch:
 
 permissions:
