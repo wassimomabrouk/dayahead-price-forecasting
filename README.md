@@ -7,6 +7,8 @@ noon auction may be used.
 Eight years of data, eight models, a twelve-month held-out year opened once,
 and a daily forecast that has been running since September 2026.
 
+**[Tomorrow's forecast, published daily](https://wassimomabrouk.github.io/dayahead-price-forecasting)**
+
 ---
 
 ## Two findings
