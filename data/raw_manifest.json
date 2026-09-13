@@ -1,5 +1,5 @@
 {
-  "created_utc": "2026-09-13T10:01:58.640073+00:00",
+  "created_utc": "2026-09-13T15:02:19.144984+00:00",
   "window_start_utc": "2018-09-30T22:00:00+00:00",
   "region": "DE",
   "resolution": "hour",
@@ -7,15 +7,15 @@
     "price_delu": {
       "filter_id": "4169",
       "role": "target",
-      "blocks_expected": 415,
-      "blocks_stored": 415,
+      "blocks_expected": 416,
+      "blocks_stored": 416,
       "fetched": 2,
       "failed": [],
-      "points": 69720,
-      "nulls": 24,
-      "null_pct": 0.0344,
+      "points": 69888,
+      "nulls": 168,
+      "null_pct": 0.2404,
       "first_block": 1538344800000,
-      "last_block": 1788732000000
+      "last_block": 1789336800000
     },
     "fc_gen_total": {
       "filter_id": "122",
@@ -103,8 +103,8 @@
       "fetched": 2,
       "failed": [],
       "points": 69720,
-      "nulls": 13,
-      "null_pct": 0.0186,
+      "nulls": 8,
+      "null_pct": 0.0115,
       "first_block": 1538344800000,
       "last_block": 1788732000000
     },
@@ -116,11 +116,11 @@
       "fetched": 2,
       "failed": [],
       "points": 69720,
-      "nulls": 13,
-      "null_pct": 0.0186,
+      "nulls": 8,
+      "null_pct": 0.0115,
       "first_block": 1538344800000,
       "last_block": 1788732000000
     }
   },
-  "elapsed_seconds": 8.9
+  "elapsed_seconds": 8.5
 }

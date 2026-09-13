@@ -31,7 +31,10 @@ def test_next_delivery_day_is_the_first_with_exog_and_no_price():
     published, tomorrow's price is not.
     """
     panel = _panel("2026-09-10 21:00", "2026-09-11 21:00")
-    day = next_delivery_day(panel)
+    # A fixed clock, because next_delivery_day now refuses days whose auction
+    # has closed and these dates are in the past by the time anyone runs this.
+    now = pd.Timestamp("2026-09-10 10:00", tz=cfg.LOCAL_TZ)
+    day = next_delivery_day(panel, now=now)
     assert day is not None
     assert day.strftime("%Y-%m-%d") == "2026-09-11"
 
@@ -39,12 +42,14 @@ def test_next_delivery_day_is_the_first_with_exog_and_no_price():
 def test_no_delivery_day_when_prices_are_current():
     """Most of the day there is nothing new to forecast. Not an error."""
     panel = _panel("2026-09-11 21:00", "2026-09-11 21:00")
-    assert next_delivery_day(panel) is None
+    now = pd.Timestamp("2026-09-10 10:00", tz=cfg.LOCAL_TZ)
+    assert next_delivery_day(panel, now=now) is None
 
 
 def test_a_partial_day_of_exog_is_not_forecast():
     panel = _panel("2026-09-10 21:00", "2026-09-11 05:00")
-    assert next_delivery_day(panel) is None
+    now = pd.Timestamp("2026-09-10 10:00", tz=cfg.LOCAL_TZ)
+    assert next_delivery_day(panel, now=now) is None
 
 
 # ------------------------------------------------------------ track record
@@ -287,7 +292,8 @@ def test_the_daily_job_does_not_wait_for_inputs_that_arrive_too_late():
                  "fc_residual"):
         df.loc[df.index > cut, late] = np.nan
 
-    day = next_delivery_day(df)
+    now = pd.Timestamp("2026-09-12 10:00", tz=cfg.LOCAL_TZ)
+    day = next_delivery_day(df, now=now)
     assert day is not None, "the job refused a day it could have forecast"
     assert day.strftime("%Y-%m-%d") == "2026-09-13"
 
@@ -307,7 +313,8 @@ def test_requiring_the_full_exog_set_would_refuse():
                  "fc_residual"):
         df.loc[df.index > cut, late] = np.nan
 
-    assert next_delivery_day(df, required_exog=cfg.EXOG) is None
+    now = pd.Timestamp("2026-09-12 10:00", tz=cfg.LOCAL_TZ)
+    assert next_delivery_day(df, required_exog=cfg.EXOG, now=now) is None
 
 
 def test_panel_full_has_no_usable_flag_and_the_forecast_path_adds_one():
@@ -349,3 +356,54 @@ def test_panel_full_has_no_usable_flag_and_the_forecast_path_adds_one():
 
     target_day = X.loc["2026-09-13":"2026-09-13 23:00"]
     assert len(target_day) == 24, "the target day lost rows it should have"
+
+
+# --------------------------------------- a hole in the price history
+def test_a_gap_in_the_price_history_does_not_trap_the_job():
+    """
+    SMARD published 2026-09-14 and skipped 2026-09-13, leaving a hole rather
+    than a ragged end. The job asked only for "inputs present, price absent",
+    so it fixed on the 13th, whose auction had closed two days earlier, and
+    would have stayed there until the gap filled.
+
+    A missing price in the past is a data gap. A missing price in the future
+    is the thing being forecast. Only the second is forecastable.
+    """
+    import numpy as np
+
+    from dayahead.forecast.daily import next_delivery_day
+
+    idx = pd.date_range("2026-09-01", "2026-09-16 23:00", freq="h", tz="UTC")
+    df = pd.DataFrame({c: 1000.0 for c in cfg.ALL_SERIES}, index=idx)
+    df[cfg.TARGET] = 50.0
+    loc = idx.tz_convert(cfg.LOCAL_TZ)
+    df.loc[(loc >= "2026-09-13") & (loc < "2026-09-14"), cfg.TARGET] = np.nan
+    df.loc[loc >= "2026-09-15", cfg.TARGET] = np.nan
+    df.loc[loc >= "2026-09-16", "fc_load"] = np.nan
+
+    now = pd.Timestamp("2026-09-14 10:00", tz=cfg.LOCAL_TZ)
+    day = next_delivery_day(df, now=now)
+    assert day is not None
+    assert day.strftime("%Y-%m-%d") == "2026-09-15", (
+        f"picked {day}, which is either the gap or nothing at all"
+    )
+
+
+def test_a_day_whose_auction_has_closed_is_not_forecastable():
+    import numpy as np
+
+    from dayahead.forecast.daily import next_delivery_day
+
+    idx = pd.date_range("2026-09-10", "2026-09-13 23:00", freq="h", tz="UTC")
+    df = pd.DataFrame({c: 1000.0 for c in cfg.ALL_SERIES}, index=idx)
+    df[cfg.TARGET] = 50.0
+    loc = idx.tz_convert(cfg.LOCAL_TZ)
+    df.loc[(loc >= "2026-09-13") & (loc < "2026-09-14"), cfg.TARGET] = np.nan
+
+    # Gate closure for the 13th was noon on the 12th; this is well past it.
+    after = pd.Timestamp("2026-09-13 15:00", tz=cfg.LOCAL_TZ)
+    assert next_delivery_day(df, now=after) is None
+
+    # Before gate closure the same day is a legitimate target.
+    before = pd.Timestamp("2026-09-12 10:00", tz=cfg.LOCAL_TZ)
+    assert next_delivery_day(df, now=before) is not None

@@ -113,13 +113,28 @@ OPERATIONAL_EXOG = ["fc_load"]
 
 
 def next_delivery_day(panel_full: pd.DataFrame,
-                      required_exog: list[str] | None = None) -> pd.Timestamp | None:
+                      required_exog: list[str] | None = None,
+                      now: pd.Timestamp | None = None) -> pd.Timestamp | None:
     """
-    The earliest local delivery date with the required inputs and no
-    published price.
+    The earliest *forecastable* local delivery date: inputs present, price
+    absent, and the auction that sets it still ahead.
 
-    Returns None when there is nothing new to forecast, which is the normal
-    state for most of the day and is not an error.
+    Returns None when there is nothing to forecast, which is the normal state
+    for most of the day and is not an error.
+
+    Why the auction check exists
+    ---------------------------
+
+    An earlier version asked only for inputs present and price absent. That
+    is wrong whenever the price series has a hole rather than a ragged end,
+    and SMARD produced exactly that on 2026-09-13: it published the 14th and
+    skipped the 13th. The job then fixed on the 13th, a day whose auction had
+    closed two days earlier, and would have stayed there until the gap filled,
+    missing every forecastable day in between.
+
+    A missing price in the past is a data gap. A missing price in the future
+    is the thing being forecast. Only the second is an opportunity, and the
+    auction time is what separates them.
     """
     local = panel_full.tz_convert(cfg.LOCAL_TZ)
     cols = required_exog if required_exog is not None else OPERATIONAL_EXOG
@@ -133,7 +148,18 @@ def next_delivery_day(panel_full: pd.DataFrame,
     })
     candidates = by_day[by_day["exog"] & by_day["no_price"]
                         & (by_day["hours"] >= 23)]
-    return candidates.index.min() if len(candidates) else None
+    if candidates.empty:
+        return None
+
+    # A delivery day is forecastable only while its auction is still ahead.
+    # The auction for day D clears at gate closure on D-1.
+    now = now if now is not None else pd.Timestamp.now(tz=cfg.LOCAL_TZ)
+    still_open = [
+        day for day in candidates.index
+        if (day - pd.Timedelta(days=1)
+            + pd.Timedelta(hours=cfg.GATE_CLOSURE_HOUR_LOCAL)) > now
+    ]
+    return min(still_open) if still_open else None
 
 
 def produce_forecast(model_name: str = "N-HiTS",
