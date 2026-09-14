@@ -1,25 +1,35 @@
 name: daily forecast
 
-# Two runs a day, half an hour apart, both before the noon auction that fixes
-# tomorrow's prices.
+# Four attempts a day, all before the noon auction that fixes tomorrow's
+# prices.
 #
-# Cron is UTC and Berlin moves, so the local times differ by season:
+# Two risks pull in opposite directions. Run too early and the day-ahead load
+# forecast may not be published yet, whose regulatory deadline is two hours
+# before gate closure, so 10:00 local. Run too late and GitHub's scheduler,
+# which queues jobs and routinely starts them 20 to 60 minutes behind, can
+# push the attempt past the auction. On 14 September the 09:00 UTC run had
+# not fired by 11:36 Berlin and the day had to be triggered by hand.
 #
-#   09:00 UTC  ->  11:00 Berlin in summer, 10:00 in winter
-#   09:30 UTC  ->  11:30 Berlin in summer, 10:30 in winter
+# Spreading the attempts solves both. Local times by season:
 #
-# Both land before midday either way, and both fall after the regulatory
-# deadline for the day-ahead load forecast, which is two hours before gate
-# closure. An earlier pair would give more margin against the auction and
-# risk running before the load forecast exists, which is the wrong trade:
-# the input has to be there before the run is worth making.
+#   08:00 UTC  ->  10:00 Berlin summer, 09:00 winter
+#   09:00 UTC  ->  11:00 summer, 10:00 winter
+#   09:30 UTC  ->  11:30 summer, 10:30 winter
 #
-# The second run is nearly free when the first succeeded. The forecast
-# command checks the log before fitting and exits at once if the day is
-# already covered, so it only does real work when the earlier run found no
-# load forecast or failed outright.
+# The earliest attempt may find no load forecast and exit; the later ones
+# catch it. Any one succeeding is enough, and the last has half an hour of
+# margin against the auction in summer, ninety minutes in winter.
+#
+# A fourth attempt at 07:00 UTC was considered and dropped. It falls outside
+# the guaranteed publication window in both seasons, so its only value is as
+# cover for scheduler drift, and three attempts already provide that.
+#
+# Extra attempts are nearly free. The forecast command checks the log before
+# fitting and exits in seconds when the day is already covered, so only the
+# first successful attempt of the day does real work.
 on:
   schedule:
+    - cron: "0 8 * * *"
     - cron: "0 9 * * *"
     - cron: "30 9 * * *"
   workflow_dispatch:
