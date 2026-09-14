@@ -53,6 +53,14 @@ HORIZON = 24              # one delivery day
 MAX_STEPS = 300
 BATCH_SIZE = 32
 
+# Longest hole in the conditioning history that will be bridged rather than
+# refused. SMARD skipped a whole delivery day on 2026-09-13, and
+# neuralforecast requires a contiguous hourly series to condition on, so a
+# single missing day made the model emit nothing at all. Bridging up to two
+# days keeps the forecaster running through an outage of that size; anything
+# longer is a different problem and is refused loudly.
+MAX_CONDITIONING_GAP_HOURS = 48
+
 # Any prediction beyond this is a numerical failure, not a forecast. The
 # observed price range across the whole sample is -500 to 936 EUR/MWh.
 #
@@ -114,6 +122,8 @@ class NHiTSForecaster(Forecaster):
         self.futr_exog = list(futr_exog if futr_exog is not None else FUTR_EXOG)
         self._nf = None
         self._train_df: pd.DataFrame | None = None
+        self._bridged_hours = 0
+        self._failed_days = 0
         self._qcols: dict[float, str] = {}
         self._skipped_days = 0
 
@@ -138,6 +148,44 @@ class NHiTSForecaster(Forecaster):
         if y is not None:
             df["y"] = y.to_numpy(dtype=float)
         return df
+
+    def _contiguous(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Fill short holes in the conditioning history.
+
+        neuralforecast requires a gap-free hourly series and refuses one that
+        is not, which on 2026-09-14 meant a single unpublished delivery day
+        stopped the forecaster entirely.
+
+        Bridged values are linear interpolations used only to condition the
+        network. They never enter training, never enter any evaluation, and
+        never appear in a reported figure. The count is exposed in report()
+        so a forecast resting on a bridged history is identifiable rather
+        than indistinguishable from one that is not.
+        """
+        self._bridged_hours = 0
+        if df is None or df.empty:
+            return df
+
+        full = pd.date_range(df["ds"].min(), df["ds"].max(), freq="h")
+        if len(full) == len(df):
+            return df
+
+        out = (df.set_index("ds").reindex(full)
+               .rename_axis("ds").reset_index())
+        missing = int(out["y"].isna().sum())
+        if missing > MAX_CONDITIONING_GAP_HOURS:
+            raise RuntimeError(
+                f"{self.name}: {missing} hours missing from the conditioning "
+                f"history, above the {MAX_CONDITIONING_GAP_HOURS} hour limit. "
+                "Bridging a hole this size would be invention, not repair."
+            )
+
+        out["unique_id"] = df["unique_id"].iloc[0]
+        numeric = [c for c in out.columns if c not in ("ds", "unique_id")]
+        out[numeric] = out[numeric].interpolate(limit_direction="both")
+        self._bridged_hours = missing
+        return out
 
     # ----------------------------------------------------------------- api
     def fit(self, X: pd.DataFrame, y: pd.Series) -> "NHiTSForecaster":
@@ -187,12 +235,14 @@ class NHiTSForecaster(Forecaster):
         qs = list(quantiles or QUANTILES)
         out = {q: pd.Series(np.nan, index=X.index, dtype=float) for q in qs}
 
+        history = self._contiguous(self._train_df)
+
         future = self._frame(X, y)
         # Group by local delivery date, which is what gate closure is defined
         # on, while the ds axis itself stays in UTC.
         future["_date"] = X.index.tz_convert(cfg.LOCAL_TZ).normalize().tz_localize(None)
-        history = self._train_df.copy()
         self._skipped_days = 0
+        self._failed_days = 0
 
         for _, block in future.groupby("_date", sort=True):
             block = block.drop(columns="_date")
@@ -213,7 +263,14 @@ class NHiTSForecaster(Forecaster):
                 try:
                     pred = self._nf.predict(df=history, futr_df=usable,
                                             verbose=False)
-                except Exception:
+                except Exception as exc:
+                    # Counted rather than swallowed. A silent failure here
+                    # produces a full set of NaN predictions that look like a
+                    # successful run: the log gains its rows, the page draws
+                    # an empty chart, and nothing reports an error. That is
+                    # exactly what happened on 2026-09-14.
+                    self._failed_days += 1
+                    self._last_error = f"{type(exc).__name__}: {exc}"
                     pred = None
 
                 if pred is not None:
@@ -254,6 +311,9 @@ class NHiTSForecaster(Forecaster):
             "futr_exog": self.futr_exog,
             "train_rows": None if self._train_df is None else len(self._train_df),
             "skipped_days": self._skipped_days,
+            "failed_days": self._failed_days,
+            "bridged_hours": self._bridged_hours,
+            "last_error": getattr(self, "_last_error", None),
         }
 
 

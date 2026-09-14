@@ -407,3 +407,65 @@ def test_a_day_whose_auction_has_closed_is_not_forecastable():
     # Before gate closure the same day is a legitimate target.
     before = pd.Timestamp("2026-09-12 10:00", tz=cfg.LOCAL_TZ)
     assert next_delivery_day(df, now=before) is not None
+
+
+# ------------------------------- silent NaN forecasts, 14 September 2026
+def test_conditioning_history_bridges_a_short_hole():
+    """
+    neuralforecast refuses a history with a gap, and the refusal was caught
+    and turned into a full set of NaN predictions. The log gained its 24
+    rows, the page drew an empty chart, and nothing reported an error.
+
+    Short holes are bridged for conditioning only. The bridged count is
+    reported so a forecast resting on interpolated history is identifiable.
+    """
+    import numpy as np
+
+    from dayahead.models.nhits import NHiTSForecaster
+
+    m = NHiTSForecaster()
+    ds = pd.date_range("2026-09-01", "2026-09-10 23:00", freq="h")
+    df = pd.DataFrame({"unique_id": "DE_LU", "ds": ds,
+                       "y": np.arange(len(ds), dtype=float)})
+    # Drop a whole day, as SMARD did on 2026-09-13.
+    gapped = df[(df["ds"] < "2026-09-05") | (df["ds"] >= "2026-09-06")]
+
+    bridged = m._contiguous(gapped)
+    assert len(bridged) == len(ds)
+    assert m._bridged_hours == 24
+    assert bridged["y"].notna().all()
+    assert bridged["ds"].diff().dropna().nunique() == 1
+
+
+def test_a_long_hole_is_refused_rather_than_invented():
+    import numpy as np
+
+    from dayahead.models.nhits import MAX_CONDITIONING_GAP_HOURS, NHiTSForecaster
+
+    m = NHiTSForecaster()
+    ds = pd.date_range("2026-09-01", "2026-09-20 23:00", freq="h")
+    df = pd.DataFrame({"unique_id": "DE_LU", "ds": ds,
+                       "y": np.arange(len(ds), dtype=float)})
+    gapped = df[(df["ds"] < "2026-09-05") | (df["ds"] >= "2026-09-12")]
+    assert len(ds) - len(gapped) > MAX_CONDITIONING_GAP_HOURS
+
+    with pytest.raises(RuntimeError, match="conditioning history"):
+        m._contiguous(gapped)
+
+
+def test_training_filter_does_not_discard_the_day_after_a_gap():
+    """
+    is_usable requires every feature, including the price lag columns. One
+    unpublished day therefore removed two from training: the day itself and
+    the day after, whose price_d1_same_hour reads from it. The conditioning
+    history stopped two days short and the model could only forecast a day
+    already past.
+    """
+    import inspect
+
+    from dayahead.forecast.daily import produce_forecast
+
+    src = inspect.getsource(produce_forecast)
+    assert 'train = X[X["y"].notna()]' in src, (
+        "filtering training rows on is_usable discards the day after a gap"
+    )

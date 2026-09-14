@@ -211,7 +211,20 @@ def produce_forecast(model_name: str = "N-HiTS",
     usable["is_usable"] = usable[required].notna().all(axis=1)
     X, _ = build_reduced_features(panel=usable.tz_convert("UTC"))
 
-    train = X[X["y"].notna() & X["is_usable"]]
+    # Filtered on the target alone, not on is_usable.
+    #
+    # is_usable requires every feature to be present, including the price lag
+    # columns. A single unpublished delivery day therefore removes two days
+    # from training: the day itself, which has no price, and the day after,
+    # whose price_d1_same_hour reads from it. The conditioning history then
+    # stops two days short and the model can only forecast a day already in
+    # the past.
+    #
+    # The sequence model does not consume the lag columns. It needs the price
+    # series and its own exogenous inputs, and the frame builder drops any row
+    # missing those. So filtering on the target here is both sufficient and
+    # two days less destructive.
+    train = X[X["y"].notna()]
     future = X.loc[target_day:day_end]
     if future.empty:
         if verbose:
