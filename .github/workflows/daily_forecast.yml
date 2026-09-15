@@ -1,37 +1,43 @@
 name: daily forecast
 
-# Four attempts a day, all before the noon auction that fixes tomorrow's
-# prices.
+# Attempts spread widely, at odd minutes, all before the noon auction that
+# fixes tomorrow's prices.
 #
-# Two risks pull in opposite directions. Run too early and the day-ahead load
-# forecast may not be published yet, whose regulatory deadline is two hours
-# before gate closure, so 10:00 local. Run too late and GitHub's scheduler,
-# which queues jobs and routinely starts them 20 to 60 minutes behind, can
-# push the attempt past the auction. On 14 September the 09:00 UTC run had
-# not fired by 11:36 Berlin and the day had to be triggered by hand.
+# Three constraints, and the third only became visible once the job was
+# actually running.
 #
-# Spreading the attempts solves both. Local times by season:
+# Too early and the day-ahead load forecast may not exist yet; its regulatory
+# deadline is two hours before gate closure, so 10:00 local. Too late and the
+# auction has already fixed the prices. And in between, GitHub's scheduler
+# does not run when asked: on 15 September crons set for 10:00, 11:00 and
+# 11:30 Berlin fired at roughly 14:58, 16:36 and 16:44, three to five hours
+# behind, by which time every attempt was past the auction and the day was
+# lost.
 #
-#   08:00 UTC  ->  10:00 Berlin summer, 09:00 winter
-#   09:00 UTC  ->  11:00 summer, 10:00 winter
-#   09:30 UTC  ->  11:30 summer, 10:30 winter
+# Two things reduce that. Odd minutes rather than the top of the hour, since
+# on-the-hour schedules queue behind everyone else's. And a wider spread, so
+# a delayed early attempt lands where a punctual late one would have.
 #
-# The earliest attempt may find no load forecast and exit; the later ones
-# catch it. Any one succeeding is enough, and the last has half an hour of
-# margin against the auction in summer, ninety minutes in winter.
+#   04:23 UTC  ->  06:23 Berlin summer, 05:23 winter
+#   05:47 UTC  ->  07:47 summer, 06:47 winter
+#   07:13 UTC  ->  09:13 summer, 08:13 winter
+#   08:37 UTC  ->  10:37 summer, 09:37 winter
+#   09:19 UTC  ->  11:19 summer, 10:19 winter
 #
-# A fourth attempt at 07:00 UTC was considered and dropped. It falls outside
-# the guaranteed publication window in both seasons, so its only value is as
-# cover for scheduler drift, and three attempts already provide that.
+# The first two are almost certainly too early for the load forecast and will
+# exit in seconds having found nothing. They are here as drift cover: an
+# attempt scheduled for 06:23 and delayed three hours still lands inside the
+# window, whereas one scheduled for 11:19 and delayed three hours does not.
 #
-# Extra attempts are nearly free. The forecast command checks the log before
-# fitting and exits in seconds when the day is already covered, so only the
-# first successful attempt of the day does real work.
+# Attempts cost seconds once the day is covered, so the only real cost of
+# five is a longer Actions list.
 on:
   schedule:
-    - cron: "0 8 * * *"
-    - cron: "0 9 * * *"
-    - cron: "30 9 * * *"
+    - cron: "23 4 * * *"
+    - cron: "47 5 * * *"
+    - cron: "13 7 * * *"
+    - cron: "37 8 * * *"
+    - cron: "19 9 * * *"
   workflow_dispatch:
 
 permissions:

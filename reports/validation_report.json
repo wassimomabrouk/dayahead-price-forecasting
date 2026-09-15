@@ -53,14 +53,14 @@
       ]
     ]
   },
-  "cutoff_utc": "2026-09-13 21:00:00+00:00",
+  "cutoff_utc": "2026-09-15 21:00:00+00:00",
   "rows_full": 69888,
-  "rows_trimmed": 69720,
-  "rows_usable": 69672,
+  "rows_trimmed": 69768,
+  "rows_usable": 69720,
   "rows_excluded": 48,
   "residual_identity": {
-    "corr": 0.999999999999988,
-    "mean_abs_diff": 0.0004457931590978441,
+    "corr": 0.9999999999999882,
+    "mean_abs_diff": 0.00044763707296044766,
     "max_abs_diff": 0.020000000008735697,
     "holds": true,
     "tolerance_mw": 0.05
@@ -71,12 +71,12 @@
     "n_other": 0
   },
   "target_stats": {
-    "n": 69720,
-    "mean": 94.2889403983012,
-    "sd": 90.38138367434887,
+    "n": 69768,
+    "mean": 94.37429456297318,
+    "sd": 90.45291463545051,
     "min": -500.0,
     "max": 936.28,
     "negative_hours": 2517,
-    "negative_pct": 3.6101549053356283
+    "negative_pct": 3.6076711386308915
   }
 }
