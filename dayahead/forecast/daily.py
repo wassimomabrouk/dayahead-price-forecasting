@@ -279,10 +279,31 @@ def produce_forecast(model_name: str = "N-HiTS",
 
 
 # ------------------------------------------------------------ track record
+def _normalise(log: pd.DataFrame) -> pd.DataFrame:
+    """
+    Force delivery_hour_local to a single dtype.
+
+    Rows read back from CSV arrive as strings; rows just produced carry
+    Timestamps. Concatenating the two gives an object column holding both,
+    which compares fine until something calls min() on it and pandas raises
+    "'<=' not supported between instances of 'str' and 'Timestamp'".
+
+    That combination first occurred on 2026-09-17, when a new forecast was
+    appended to a log that already had a scored day. Before then one or the
+    other was always absent, so the mixture never formed.
+    """
+    if log.empty or "delivery_hour_local" not in log:
+        return log
+    out = log.copy()
+    out["delivery_hour_local"] = pd.to_datetime(
+        out["delivery_hour_local"], utc=True, errors="coerce")
+    return out
+
+
 def load_log() -> pd.DataFrame:
     if not LOG_PATH.exists():
         return pd.DataFrame(columns=LOG_COLUMNS)
-    return pd.read_csv(LOG_PATH)
+    return _normalise(pd.read_csv(LOG_PATH))
 
 
 def append_forecast(new: pd.DataFrame) -> pd.DataFrame:
@@ -293,31 +314,35 @@ def append_forecast(new: pd.DataFrame) -> pd.DataFrame:
     quietly reissued, which is exactly what a track record exists to prevent.
     """
     log = load_log()
+    new = _normalise(new)
     if len(log):
-        already = set(log["delivery_hour_local"].astype(str))
-        new = new[~new["delivery_hour_local"].astype(str).isin(already)]
+        already = set(log["delivery_hour_local"])
+        new = new[~new["delivery_hour_local"].isin(already)]
     if new.empty:
         return log
-    return pd.concat([log, new], ignore_index=True)
+    return _normalise(pd.concat([log, new], ignore_index=True))
 
 
 def score_log(log: pd.DataFrame, panel_full: pd.DataFrame) -> pd.DataFrame:
     """Fill in realised prices for forecasts whose outturn has since cleared."""
     if log.empty:
         return log
-    local = panel_full.tz_convert(cfg.LOCAL_TZ)
-    truth = local[cfg.TARGET].astype("float64")
-    truth.index = truth.index.astype(str)
+    log = _normalise(log)
+    # Matched on UTC instants rather than on formatted local strings: the
+    # column is now datetime, so string comparison would need both sides
+    # formatted identically, which they are not.
+    truth = panel_full.tz_convert("UTC")[cfg.TARGET].astype("float64")
 
     log = log.copy()
     missing = log["y_true"].isna()
-    filled = log.loc[missing, "delivery_hour_local"].astype(str).map(truth)
+    filled = log.loc[missing, "delivery_hour_local"].map(truth)
     log.loc[missing, "y_true"] = filled.to_numpy()
     log["abs_error"] = (log["y_true"] - log["y_pred"]).abs()
     return log
 
 
 def track_record_summary(log: pd.DataFrame) -> dict:
+    log = _normalise(log)
     scored = log[log["y_true"].notna()]
     if scored.empty:
         return {"scored_hours": 0}

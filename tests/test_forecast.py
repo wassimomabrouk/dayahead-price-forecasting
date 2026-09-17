@@ -469,3 +469,34 @@ def test_training_filter_does_not_discard_the_day_after_a_gap():
     assert 'train = X[X["y"].notna()]' in src, (
         "filtering training rows on is_usable discards the day after a gap"
     )
+
+
+def test_log_survives_a_mix_of_parsed_and_unparsed_timestamps():
+    """
+    Rows read from CSV arrive as strings; rows just produced carry
+    Timestamps. Concatenating both gave an object column that raised on
+    min(), crashing the job after the forecast had been written but before
+    it was committed, so the forecast was lost with the runner.
+
+    The mixture needs a new forecast and an already-scored day at once,
+    which first happened on 2026-09-17.
+    """
+    import numpy as np
+
+    from dayahead.forecast.daily import track_record_summary
+
+    old = pd.DataFrame({
+        "delivery_hour_local": ["2026-09-17 00:00:00+02:00"],
+        "y_pred": [50.0], "y_true": [60.0], "abs_error": [10.0],
+        "q10": [40.0], "q90": [70.0]})
+    fresh = pd.DataFrame({
+        "delivery_hour_local": pd.date_range(
+            "2026-09-18", periods=1, freq="h", tz=cfg.LOCAL_TZ),
+        "y_pred": [55.0], "y_true": [np.nan], "abs_error": [np.nan],
+        "q10": [45.0], "q90": [75.0]})
+    mixed = pd.concat([old, fresh], ignore_index=True)
+
+    s = track_record_summary(mixed)
+    assert s["scored_hours"] == 1
+    assert s["pending_hours"] == 1
+    assert s["mae"] == pytest.approx(10.0)
