@@ -21,7 +21,7 @@
     "load_real": 0,
     "residual_real": 0
   },
-  "grid_rows": 69888,
+  "grid_rows": 70056,
   "interior_nulls": {
     "price_delu": 24,
     "fc_gen_total": 0,
@@ -53,14 +53,14 @@
       ]
     ]
   },
-  "cutoff_utc": "2026-09-15 21:00:00+00:00",
-  "rows_full": 69888,
-  "rows_trimmed": 69768,
-  "rows_usable": 69720,
+  "cutoff_utc": "2026-09-24 21:00:00+00:00",
+  "rows_full": 70056,
+  "rows_trimmed": 69984,
+  "rows_usable": 69936,
   "rows_excluded": 48,
   "residual_identity": {
-    "corr": 0.9999999999999882,
-    "mean_abs_diff": 0.00044763707296044766,
+    "corr": 0.9999999999999872,
+    "mean_abs_diff": 0.00045683247594238826,
     "max_abs_diff": 0.020000000008735697,
     "holds": true,
     "tolerance_mw": 0.05
@@ -71,12 +71,12 @@
     "n_other": 0
   },
   "target_stats": {
-    "n": 69768,
-    "mean": 94.37429456297318,
-    "sd": 90.45291463545051,
+    "n": 69984,
+    "mean": 94.4780251572327,
+    "sd": 90.48030701215701,
     "min": -500.0,
     "max": 936.28,
-    "negative_hours": 2517,
-    "negative_pct": 3.6076711386308915
+    "negative_hours": 2530,
+    "negative_pct": 3.615112025605853
   }
 }

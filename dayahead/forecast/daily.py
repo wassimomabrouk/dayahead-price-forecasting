@@ -52,6 +52,21 @@ from ..evaluation.splits import QUANTILES
 LOG_PATH = cfg.REPORTS / "forecast_log.csv"
 CALIBRATION_PATH = cfg.REPORTS / "calibration.json"
 
+# The live model, and the model its conformal corrections are fitted on.
+#
+# These must name the same thing, and for the first two weeks of operation
+# they did not. The corrections were fitted on "N-HiTS", the champion from
+# section 11, which sees the wind and solar forecasts. The live forecaster is
+# the section 16 model, which does not. Its errors are larger and shaped
+# differently, especially through the midday solar hours, so it was being
+# handed intervals calibrated for a better-informed model. Coverage over the
+# first eight scored days came to 0.708 against a nominal 0.80, which is what
+# that mismatch looks like.
+#
+# Section 16 stored out-of-sample predictions for this model over the locked
+# test year, so the corrections can be fitted on the right residuals.
+LIVE_MODEL = "N-HiTS_operational"
+
 LOG_COLUMNS = [
     "issued_utc", "delivery_hour_local", "delivery_date_local", "hour",
     "model", "y_pred", *[f"q{int(q * 100):02d}" for q in QUANTILES],
@@ -162,7 +177,7 @@ def next_delivery_day(panel_full: pd.DataFrame,
     return min(still_open) if still_open else None
 
 
-def produce_forecast(model_name: str = "N-HiTS",
+def produce_forecast(model_name: str = LIVE_MODEL,
                      verbose: bool = True) -> pd.DataFrame | None:
     """Fit on all published history, forecast the next delivery day."""
     from ..data.validate import load_panel
@@ -257,7 +272,17 @@ def produce_forecast(model_name: str = "N-HiTS",
     out["y_pred"] = out[_qcol(0.5)]
 
     cal = load_calibration()
-    if cal and cal.get("model") == model_name:
+    if cal and cal.get("model") != model_name:
+        # Loud rather than silent. The previous version fell through to the
+        # same message as a missing file, so a calibration fitted on the
+        # wrong model was indistinguishable from none at all.
+        if verbose:
+            print(f"  WARNING: calibration was fitted on "
+                  f"'{cal.get('model')}' but this is '{model_name}'. "
+                  "Intervals left uncalibrated. Run: "
+                  "py -m dayahead.cli forecast --calibrate")
+        cal = None
+    if cal:
         for q in QUANTILES:
             out[_qcol(q)] = out[_qcol(q)] + cal["deltas"].get(str(q), 0.0)
         out["y_pred"] = out[_qcol(0.5)]

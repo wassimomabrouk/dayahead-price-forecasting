@@ -610,8 +610,9 @@ def cmd_forecast(args) -> int:
 
     from .data.validate import load_panel
     from .forecast.daily import (
-        CALIBRATION_PATH, LOG_PATH, append_forecast, build_calibration,
-        load_log, produce_forecast, score_log, track_record_summary,
+        CALIBRATION_PATH, LIVE_MODEL, LOG_PATH, append_forecast,
+        build_calibration, load_log, produce_forecast, score_log,
+        track_record_summary,
     )
 
     print("=" * 78)
@@ -627,10 +628,16 @@ def cmd_forecast(args) -> int:
         if not frames:
             print("  no stored predictions to calibrate from")
             return 1
-        cal = build_calibration(pd.concat(frames, ignore_index=True), "N-HiTS")
+        pooled = pd.concat(frames, ignore_index=True)
+        if LIVE_MODEL not in set(pooled["model"]):
+            print(f"  no stored predictions for '{LIVE_MODEL}'. "
+                  "Run: py -m dayahead.cli operational")
+            return 1
+        cal = build_calibration(pooled, LIVE_MODEL)
         with CALIBRATION_PATH.open("w", encoding="utf-8") as f:
             json.dump(cal, f, indent=2)
-        print(f"\n  calibration fitted on {cal['n_rows']:,} rows, "
+        print(f"\n  model:  {cal['model']}")
+        print(f"  fitted on {cal['n_rows']:,} rows, "
               f"written to {CALIBRATION_PATH}")
         return 0
 
