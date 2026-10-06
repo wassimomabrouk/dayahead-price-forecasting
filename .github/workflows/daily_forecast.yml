@@ -74,16 +74,35 @@ jobs:
         # No editable install: the project runs from the repository root with
         # no installation step, so CI installs the dependencies directly.
         #
-        # pandas is pinned below 3. Unpinned, every run installs whatever is
-        # newest on PyPI, so the environment can change between one morning
-        # and the next with no change to the code. On 2026-10-06 a new
-        # release let pandas 3 in, and all four runs failed writing into an
-        # array pandas 3 returns read-only. The pin keeps CI on the version
-        # the code is tested against; moving to pandas 3 should be a
-        # deliberate change, not something that happens overnight.
+        # The two libraries the model depends on directly are pinned to exact
+        # versions, the ones in place on the first green run after the fix.
+        #
+        # Unpinned, every run installs whatever is newest on PyPI, so the
+        # environment can change between one morning and the next with no
+        # change to the code. On 2026-10-06 a new release let pandas 3 in,
+        # and all four runs failed writing into an array pandas 3 returns
+        # read-only.
+        #
+        # Pinning pandas alone was not enough. A later neuralforecast that
+        # required pandas 3 would either fail to resolve, stopping every run,
+        # or make pip quietly fall back to an older neuralforecast, a
+        # combination nobody tested. So both are fixed together. Upgrading
+        # either should be a deliberate change: bump the versions, run the
+        # tests, push.
+        #
+        # Indirect dependencies, torch, numpy and lightning among them, are
+        # still free to move. The next step prints exactly what was
+        # installed, so a full lock file can be built from a known-good run.
         run: |
           python -m pip install --upgrade pip
-          pip install "pandas>=2.2,<3" pyarrow statsmodels lightgbm scikit-learn neuralforecast
+          pip install "pandas==2.3.3" "neuralforecast==3.2.2" pyarrow statsmodels lightgbm scikit-learn
+
+      - name: Record the environment
+        # Every installed package and its version, written to the log. When a
+        # run that worked yesterday fails today with no code change, comparing
+        # this step across the two runs shows what moved. It is also the raw
+        # material for a full lock file later.
+        run: pip freeze
 
       - name: Ingest
         run: python -m dayahead.cli ingest
