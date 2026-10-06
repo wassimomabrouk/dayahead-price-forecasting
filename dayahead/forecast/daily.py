@@ -293,10 +293,12 @@ def produce_forecast(model_name: str = LIVE_MODEL,
         print("  WARNING: no calibration file, intervals are uncalibrated")
 
     # Independent per-quantile shifts can reorder the quantiles.
+    #
+    # np.sort returns a new array rather than sorting in place. Under pandas
+    # 3, to_numpy() can hand back a read-only view, and an in-place .sort()
+    # on it raises; see the matching note in models/nhits.py.
     qcols = [_qcol(q) for q in QUANTILES]
-    block = out[qcols].to_numpy(dtype=float)
-    block.sort(axis=1)
-    out[qcols] = block
+    out[qcols] = np.sort(out[qcols].to_numpy(dtype=float), axis=1)
 
     out["y_true"] = np.nan
     out["abs_error"] = np.nan

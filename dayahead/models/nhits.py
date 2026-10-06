@@ -295,7 +295,12 @@ class NHiTSForecaster(Forecaster):
 
         result = {}
         for q, v in out.items():
-            arr = v.to_numpy(dtype=float)
+            # An explicit writable copy. Under pandas 3, to_numpy() can return
+            # a read-only view, and the in-place assignment below then raises
+            # "assignment destination is read-only". The project pins pandas
+            # below 3, but CI installed whatever was newest until 2026-10-06,
+            # when every run that day failed on exactly this line.
+            arr = np.array(v.to_numpy(dtype=float), dtype=float, copy=True)
             arr[np.abs(arr) > DIVERGENCE_LIMIT] = np.nan
             result[q] = arr
         return result
