@@ -1,9 +1,9 @@
 {
-  "forecast_hours": 504,
+  "forecast_hours": 528,
   "scored_hours": 504,
-  "pending_hours": 0,
+  "pending_hours": 24,
   "mae": 35.485243428427076,
   "coverage": 0.7142857142857143,
   "first_delivery": "2026-09-12 22:00:00+00:00",
-  "last_delivery": "2026-10-09 21:00:00+00:00"
+  "last_delivery": "2026-10-10 21:00:00+00:00"
 }
