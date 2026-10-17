@@ -1,9 +1,9 @@
 {
   "forecast_hours": 720,
-  "scored_hours": 696,
-  "pending_hours": 24,
-  "mae": 32.04681516506558,
-  "coverage": 0.7140804597701149,
+  "scored_hours": 720,
+  "pending_hours": 0,
+  "mae": 32.4426395547801,
+  "coverage": 0.7083333333333334,
   "first_delivery": "2026-09-12 22:00:00+00:00",
   "last_delivery": "2026-10-18 21:00:00+00:00"
 }
