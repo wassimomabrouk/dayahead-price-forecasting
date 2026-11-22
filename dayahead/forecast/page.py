@@ -51,7 +51,9 @@ def _svg_line_chart(x_labels, series, bands=None, width=880, height=300,
     Hand-drawn rather than pulled from a plotting library because the page
     must remain a single file with no external requests.
     """
-    pad_l, pad_r, pad_t, pad_b = 55, 15, 15, 45
+    # The top padding holds the unit label. It used to sit inside the plot
+    # area at the height of the highest tick and overprinted its value.
+    pad_l, pad_r, pad_t, pad_b = 55, 15, 30, 45
     plot_w = width - pad_l - pad_r
     plot_h = height - pad_t - pad_b
 
@@ -115,8 +117,8 @@ def _svg_line_chart(x_labels, series, bands=None, width=880, height=300,
                      f'text-anchor="middle" font-size="11" fill="{MUTED}">'
                      f'{label}</text>')
 
-    parts.append(f'<text x="14" y="{pad_t + 4}" font-size="11" fill="{MUTED}">'
-                 f'{ylab}</text>')
+    parts.append(f'<text x="{pad_l - 8}" y="{pad_t - 14}" text-anchor="end" '
+                 f'font-size="11" fill="{MUTED}">{ylab}</text>')
     parts.append("</svg>")
     return "".join(parts)
 
@@ -142,7 +144,12 @@ def build_page() -> str:
     log, summary, champion = _load()
     now = datetime.now(timezone.utc)
 
-    # Tomorrow's forecast, meaning the most recent delivery day in the log.
+    # The most recent delivery day in the log. Headed "Tomorrow" when it is
+    # tomorrow relative to when the page was generated, which is every
+    # ordinary day. When SMARD leaves a gap no newer forecast can be made, and
+    # the newest one is for a day already past; calling that "Tomorrow" made
+    # the page look broken, so it is then headed "Latest forecast" instead.
+    heading = "Tomorrow"
     tomorrow_html = "<p class='empty'>No forecast issued yet.</p>"
     if len(log):
         latest_day = log["delivery_hour_local"].dt.tz_convert(
@@ -150,6 +157,9 @@ def build_page() -> str:
         block = log[log["delivery_hour_local"].dt.tz_convert(
             cfg.LOCAL_TZ).dt.normalize() == latest_day].sort_values(
             "delivery_hour_local")
+        today_local = pd.Timestamp(now).tz_convert(cfg.LOCAL_TZ).normalize()
+        if latest_day != today_local + pd.Timedelta(days=1):
+            heading = "Latest forecast"
         if len(block):
             labels = [f"{h:02d}" for h in block["hour"]]
             chart = _svg_line_chart(
@@ -166,7 +176,8 @@ def build_page() -> str:
 
     # Recent predicted against realised.
     history_html = "<p class='empty'>Nothing scored yet. Outturn arrives a day after issuance.</p>"
-    scored = log[log["y_true"].notna()] if len(log) else log
+    scored = (log[log["y_true"].notna() & log["y_pred"].notna()]
+              if len(log) else log)
     if len(scored):
         recent = scored.sort_values("delivery_hour_local").tail(24 * 21)
         labels = [d.tz_convert(cfg.LOCAL_TZ).strftime("%d %b")
@@ -201,7 +212,9 @@ def build_page() -> str:
     locked_line = ""
     if locked:
         locked_line = (
-            f"<p class='sub'>On a held-out year never used in development, "
+            f"<p class='sub'>The research version, which also uses the wind "
+            f"and solar forecasts and so cannot run live, scored on a "
+            f"held-out year never used in development "
             f"MAE {locked['champion_mae']:.2f} EUR/MWh against "
             f"{locked['backtest_mae']:.2f} in backtesting. Substituting "
             f"realised inputs for published forecasts would improve it by "
@@ -246,7 +259,7 @@ def build_page() -> str:
   <p class="sub">German and Luxembourg bidding zone. Issued daily before the
   noon auction, using only information published at gate closure.</p>
 
-  <h2>Tomorrow</h2>
+  <h2>{heading}</h2>
   {tomorrow_html}
 
   <h2>Track record</h2>
@@ -256,11 +269,12 @@ def build_page() -> str:
   {history_html}
 
   <h2>Method</h2>
-  <p class="sub">Champion model: {model}, selected on pinball loss across 59
-  rolling-origin backtest folds, with conformally calibrated intervals.
-  Inputs are the published day-ahead forecasts of load, wind and solar, and
-  prices from auctions that have already cleared. Realised outturn is never
-  used.</p>
+  <p class="sub">Live model: {model}, the architecture selected on pinball
+  loss across 59 rolling-origin backtest folds, with conformally calibrated
+  intervals. Its inputs are prices from auctions that have already cleared,
+  calendar terms and the day-ahead load forecast. SMARD publishes the wind
+  and solar forecasts only after the auction they would inform, so the live
+  model cannot use them. Realised outturn is never used.</p>
   {locked_line}
 
   <footer>

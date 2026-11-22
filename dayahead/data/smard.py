@@ -36,9 +36,15 @@ USER_AGENT = "dayahead-ingest/0.1"
 # new hour ever arrived. It was invisible until the daily forecast job asked
 # for tomorrow and found nothing.
 #
-# Two blocks rather than one, because a run near a week boundary can find the
-# previous block still incomplete.
-ALWAYS_REFETCH_BLOCKS = 2
+# Six blocks rather than two, because SMARD also fills holes late.
+#
+# Two were enough to pick up each week as it filled. They were not enough for
+# backfills: SMARD published the price for 2026-09-13 about a week late, and
+# left 20 and 21 November empty when the days were due. A block that has
+# dropped out of the refetch window is never downloaded again, so a backfill
+# arriving after that never reaches the store. Six weeks covers backfills up
+# to about a month late, for six extra requests per series per run.
+ALWAYS_REFETCH_BLOCKS = 6
 
 
 def get_json(url: str, timeout: int = TIMEOUT, retries: int = RETRIES) -> dict:
