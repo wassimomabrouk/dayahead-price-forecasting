@@ -208,6 +208,25 @@ def produce_forecast(model_name: str = LIVE_MODEL,
                 print(f"  {target_day:%Y-%m-%d} already forecast, nothing to do")
             return None
 
+    # The model conditions on the price series up to the end of the day
+    # before. If SMARD has not published that day yet, there is nothing to
+    # condition on and the forecast would rest on a guessed history.
+    #
+    # This happened on 20 and 21 November 2026: SMARD left both days'
+    # prices unpublished, the model could not produce anything for the 21st
+    # or the 22nd, and the old code wrote 24 empty rows for each and
+    # reported success. Skipping with a clear message is honest; an empty
+    # forecast in the log is not.
+    local_price = panel_full.tz_convert(cfg.LOCAL_TZ)[cfg.TARGET]
+    previous_day = (target_day - pd.Timedelta(hours=12)).normalize()
+    prior = local_price[local_price.index.normalize() == previous_day]
+    if prior.empty or prior.isna().any():
+        if verbose:
+            print(f"  {target_day:%Y-%m-%d} not forecast: SMARD has not "
+                  f"published the prices for {previous_day:%Y-%m-%d}, which "
+                  "the model conditions on")
+        return None
+
     if verbose:
         print(f"  delivery day: {target_day:%Y-%m-%d}")
 
@@ -259,6 +278,25 @@ def produce_forecast(model_name: str = LIVE_MODEL,
     )
     model.fit(train[cols], train["y"])
     quantiles = model.predict_quantiles(future[cols])
+
+    # Refuse to log a forecast that is not one.
+    #
+    # predict_quantiles counts its failures instead of raising, which is
+    # right for a backtest where one bad day should not stop a fold. Here it
+    # is wrong: on 21 and 22 November the failure produced 24 rows of NaN,
+    # the log took them as a forecast, the page drew an empty chart and the
+    # run went green. A forecast with any missing value now stops the run,
+    # with the reason, and writes nothing.
+    block = np.column_stack([np.asarray(quantiles[q], dtype=float)
+                             for q in QUANTILES])
+    bad = int((~np.isfinite(block)).any(axis=1).sum())
+    if bad:
+        report = model.report()
+        raise RuntimeError(
+            f"{model_name} produced no usable values for {bad} of "
+            f"{len(block)} hours of {target_day:%Y-%m-%d}; nothing was "
+            f"written. Last error: {report.get('last_error')}"
+        )
 
     out = pd.DataFrame({
         "issued_utc": datetime.now(timezone.utc).isoformat(),
@@ -370,7 +408,11 @@ def score_log(log: pd.DataFrame, panel_full: pd.DataFrame) -> pd.DataFrame:
 
 def track_record_summary(log: pd.DataFrame) -> dict:
     log = _normalise(log)
-    scored = log[log["y_true"].notna()]
+    # Scored means a forecast and an outturn both exist. A row with an
+    # outturn but no forecast was counted before, as a miss: its missing
+    # interval bounds compare false, so it lowered coverage without being a
+    # forecast at all.
+    scored = log[log["y_true"].notna() & log["y_pred"].notna()]
     if scored.empty:
         return {"scored_hours": 0}
 

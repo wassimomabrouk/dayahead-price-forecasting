@@ -173,18 +173,31 @@ class NHiTSForecaster(Forecaster):
 
         out = (df.set_index("ds").reindex(full)
                .rename_axis("ds").reset_index())
-        missing = int(out["y"].isna().sum())
-        if missing > MAX_CONDITIONING_GAP_HOURS:
+        gap = out["y"].isna()
+        total = int(gap.sum())
+
+        # The limit applies to the longest single hole, not to the total.
+        #
+        # The first version compared the total number of missing hours with
+        # the limit. Every hole SMARD ever leaves stays in the history, so the
+        # total only grows: 24 hours from 2026-09-13, then 48 from 20 and 21
+        # November, made 72, over the limit, although neither hole alone was.
+        # On 2026-11-22 that raised and every run of the day failed. What the
+        # limit is meant to bound is how much is invented in one place.
+        runs = gap.ne(gap.shift()).cumsum()
+        longest = int(gap.groupby(runs).sum().max()) if total else 0
+        if longest > MAX_CONDITIONING_GAP_HOURS:
             raise RuntimeError(
-                f"{self.name}: {missing} hours missing from the conditioning "
-                f"history, above the {MAX_CONDITIONING_GAP_HOURS} hour limit. "
-                "Bridging a hole this size would be invention, not repair."
+                f"{self.name}: a hole of {longest} consecutive hours in the "
+                f"conditioning history, above the "
+                f"{MAX_CONDITIONING_GAP_HOURS} hour limit. Bridging a hole "
+                "this size would be invention, not repair."
             )
 
         out["unique_id"] = df["unique_id"].iloc[0]
         numeric = [c for c in out.columns if c not in ("ds", "unique_id")]
         out[numeric] = out[numeric].interpolate(limit_direction="both")
-        self._bridged_hours = missing
+        self._bridged_hours = total
         return out
 
     # ----------------------------------------------------------------- api
@@ -260,18 +273,37 @@ class NHiTSForecaster(Forecaster):
             # of the locked test year, 9.6%, before this was found.
             usable = futr.iloc[:HORIZON]
             if len(usable) == HORIZON:
-                try:
-                    pred = self._nf.predict(df=history, futr_df=usable,
-                                            verbose=False)
-                except Exception as exc:
-                    # Counted rather than swallowed. A silent failure here
-                    # produces a full set of NaN predictions that look like a
-                    # successful run: the log gains its rows, the page draws
-                    # an empty chart, and nothing reports an error. That is
-                    # exactly what happened on 2026-09-14.
+                # The day must start the hour after the history ends.
+                # neuralforecast refuses otherwise, with a message about
+                # "missing combinations" that says nothing about the cause.
+                # The cause is always the same: the last price before the day
+                # has not been published, so the history stops short. Named
+                # here so the failure says what actually happened.
+                expected = history["ds"].max() + pd.Timedelta(hours=1)
+                first = usable["ds"].iloc[0]
+                if first != expected:
                     self._failed_days += 1
-                    self._last_error = f"{type(exc).__name__}: {exc}"
+                    self._last_error = (
+                        f"conditioning history ends at {history['ds'].max()} "
+                        f"UTC but the day to forecast starts at {first} UTC: "
+                        "the prices in between are not available"
+                    )
                     pred = None
+                else:
+                    try:
+                        pred = self._nf.predict(df=history, futr_df=usable,
+                                                verbose=False)
+                    except Exception as exc:
+                        # Counted rather than swallowed. A silent failure
+                        # here produces a full set of NaN predictions that
+                        # look like a successful run: the log gains its rows,
+                        # the page draws an empty chart, and nothing reports
+                        # an error. That happened on 2026-09-14, and again on
+                        # 21 and 22 November. The caller now refuses to log
+                        # such a forecast; see produce_forecast.
+                        self._failed_days += 1
+                        self._last_error = f"{type(exc).__name__}: {exc}"
+                        pred = None
 
                 if pred is not None:
                     if not self._qcols:
